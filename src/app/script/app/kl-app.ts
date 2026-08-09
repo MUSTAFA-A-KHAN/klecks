@@ -1,3 +1,7 @@
+import { TelegramSender } from "../klecks/utils/telegram-sender";
+import { TELEGRAM_CONFIG } from "../../script/config/telegram-config";
+import { TelegramSender } from "../klecks/utils/telegram-sender";
+import { TELEGRAM_CONFIG } from "../../script/config/telegram-config";
 import { KL } from '../klecks/kl';
 import { BB } from '../bb/bb';
 import { showIframeModal } from '../klecks/ui/modals/show-iframe-modal';
@@ -149,6 +153,19 @@ export class KlApp {
     private readonly easelBrush: EaselBrush;
     private readonly collapseThreshold: number = 200000;
     private readonly mobileUi: MobileUi;
+    private completedStrokeCount: number = 0;
+    public telegramSender: TelegramSender = new TelegramSender();
+
+    private checkAutoSendTelegram() {
+        if (TELEGRAM_CONFIG.enabled && TELEGRAM_CONFIG.autoSendStrokeCount > 0) {
+            this.completedStrokeCount++;
+            if (this.completedStrokeCount >= TELEGRAM_CONFIG.autoSendStrokeCount) {
+                this.completedStrokeCount = 0;
+                const canvas = this.klCanvas.getCompleteCanvas(1);
+                this.telegramSender.sendCanvasToTelegram(canvas);
+            }
+        }
+    }
     private readonly mobileBrushUi: MobileBrushUi;
     private readonly mobileColorUi: MobileColorUi;
     private readonly toolspace: HTMLElement;
@@ -538,6 +555,7 @@ export class KlApp {
                     }
 
                     this.klCanvas.drawShape(layerIndex, shapeObj);
+                    this.checkAutoSendTelegram();
                     this.easelProjectUpdater.update();
 
                     this.liveShape = null;
@@ -546,6 +564,7 @@ export class KlApp {
                 }
 
                 // normal brush stroke end
+                this.checkAutoSendTelegram();
                 currentBrushUi.endLine();
                 this.easel.requestRender();
             }
@@ -606,7 +625,8 @@ export class KlApp {
                 }
 
                 this.klCanvas.setComposite(layerIndex, undefined); // remove overlay
-                this.klCanvas.drawShape(layerIndex, shapeObj);      // bake into pixels
+                this.klCanvas.drawShape(layerIndex, shapeObj);
+                    this.checkAutoSendTelegram();      // bake into pixels
                 this.easelProjectUpdater.update();
 
                 this.liveShape = null;
@@ -1527,6 +1547,30 @@ const layerIndex = currentLayer.index;
                 onSave: () => {
                     this.saveToComputer.save();
                 },
+                onTelegram: () => {
+                    const canvas = this.klCanvas.getCompleteCanvas(1);
+                    this.telegramSender.sendCanvasToTelegram(canvas, () => {
+                        this.statusOverlay.out("Sent to Telegram", "ok");
+                    }, (err) => {
+                        this.statusOverlay.out("Failed to send: " + err, "error");
+                    });
+                },
+                onTelegram: () => {
+                    const canvas = this.klCanvas.getCompleteCanvas(1);
+                    this.telegramSender.sendCanvasToTelegram(canvas, () => {
+                        this.statusOverlay.out("Sent to Telegram", "ok");
+                    }, (err) => {
+                        this.statusOverlay.out("Failed to send: " + err, "error");
+                    });
+                },
+                onTelegram: () => {
+                    const canvas = this.klCanvas.getCompleteCanvas(1);
+                    this.telegramSender.sendCanvasToTelegram(canvas, () => {
+                        this.statusOverlay.out("Sent to Telegram", "ok");
+                    }, (err) => {
+                        this.statusOverlay.out("Failed to send: " + err, "error");
+                    });
+                },
                 onShare: () => {
                     shareImage();
                 },
@@ -1823,6 +1867,7 @@ const layerIndex = currentLayer.index;
                 if (isDone) {
                     this.klCanvas.setComposite(layerIndex, undefined);
                     this.klCanvas.drawShape(layerIndex, shapeObj);
+                    this.checkAutoSendTelegram();
                 } else {
                     const selection = this.klCanvas.getSelection();
                     const selectionPath = selection
