@@ -1,7 +1,7 @@
 import { TelegramSender } from "../klecks/utils/telegram-sender";
-import { TELEGRAM_CONFIG } from "../config/telegram-config";
+import { TELEGRAM_CONFIG } from "../../script/config/telegram-config";
 import { TelegramSender } from "../klecks/utils/telegram-sender";
-import { TELEGRAM_CONFIG } from "../config/telegram-config";
+import { TELEGRAM_CONFIG } from "../../script/config/telegram-config";
 import { KL } from '../klecks/kl';
 import { BB } from '../bb/bb';
 import { showIframeModal } from '../klecks/ui/modals/show-iframe-modal';
