@@ -47,7 +47,7 @@ export class MobileUi {
         this.rootEl = BB.el({
             css: {
                 position: 'absolute',
-                top: '0',
+                bottom: '0',
                 userSelect: 'none',
             },
         });
