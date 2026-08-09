@@ -3,3 +3,5 @@ node_modules
 dist
 .idea
 src/app/languages
+# Telegram configuration
+config/telegram.json

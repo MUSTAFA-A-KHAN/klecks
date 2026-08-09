@@ -17,6 +17,8 @@ import { klCanvasToPsdBlob } from '../klecks/storage/kl-canvas-to-psd-blob';
 import { ProjectStore } from '../klecks/storage/project-store';
 import { SaveReminder } from '../klecks/ui/components/save-reminder';
 import { KlCanvas, TKlCanvasLayer } from '../klecks/canvas/kl-canvas';
+import { TelegramIntegration } from '../klecks/telegram/telegram-integration';
+
 import { LANG } from '../language/language';
 import { LocalStorage } from '../bb/base/local-storage';
 import { LineSmoothing } from '../klecks/events/line-smoothing';
@@ -140,6 +142,8 @@ export class KlApp {
     private readonly toolspaceToolRow: ToolspaceToolRow;
     private readonly statusOverlay: StatusOverlay;
     private readonly klCanvas: KlCanvas;
+    private readonly telegramIntegration: TelegramIntegration;
+
     private uiLayout: TUiLayout;
     private readonly embed: undefined | TKlAppOptionsEmbed;
     private readonly saveToComputer: SaveToComputer;
@@ -346,6 +350,8 @@ export class KlApp {
         }
 
         this.klCanvas = new KL.KlCanvas(this.klHistory, this.embed ? -1 : 1);
+        this.telegramIntegration = new TelegramIntegration(this.klCanvas);
+
         const tempHistory = new KlTempHistory();
         let mainTabRow: TabRow | undefined = undefined;
 
@@ -548,7 +554,9 @@ export class KlApp {
                 // normal brush stroke end
                 currentBrushUi.endLine();
                 this.easel.requestRender();
+                this.telegramIntegration.onStrokeCompleted();
             }
+
 
 
             if (event.type === 'line') {

@@ -20,7 +20,8 @@
     "deploy": "npm run lang:build && npm run build && gh-pages -d dist"
   },
   "devDependencies": {
-    "gh-pages": "^6.0.0"
+    "gh-pages": "^6.0.0",
+    "@parcel/optimizer-image": "2.16.1"
   },
   "dependencies": {
     "@parcel/transformer-glsl": "2.16.1",
