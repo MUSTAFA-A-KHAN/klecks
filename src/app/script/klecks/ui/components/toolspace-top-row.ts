@@ -5,7 +5,6 @@ import importImg from 'url:/src/app/img/ui/import.svg';
 import exportImg from 'url:/src/app/img/ui/export.svg';
 import shareImg from "url:/src/app/img/ui/share.svg";
 import telegramImg from "url:/src/app/img/ui/telegram.svg";
-import telegramImg from "url:/src/app/img/ui/telegram.svg";
 import helpImg from 'url:/src/app/img/ui/help.svg';
 import { LANG } from '../../../language/language';
 import { PointerListener } from '../../../bb/input/pointer-listener';
@@ -25,7 +24,6 @@ export class ToolspaceTopRow {
         onImport: () => void;
         onSave: () => void;
         onShare: () => void;
-        onTelegram: () => void;
         onTelegram: () => void;
         onHelp: () => void;
     }) {
@@ -115,13 +113,6 @@ export class ToolspaceTopRow {
             extraPadding: 1,
             contain: true,
         });
-        const telegramButton = createButton({
-            onClick: p.onTelegram,
-            title: "Send to Telegram",
-            image: telegramImg,
-            extraPadding: 1,
-            contain: true,
-        });
         const saveButton = createButton({
             onClick: p.onSave,
             title: LANG('file-save'),
@@ -153,7 +144,6 @@ export class ToolspaceTopRow {
             newButton.el,
             importButton.el,
             saveButton.el,
-            telegramButton.el,
             telegramButton.el,
             shareButton ? shareButton.el : undefined,
             helpButton.el,
