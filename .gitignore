@@ -2,4 +2,6 @@ node_modules
 .parcel-cache
 dist
 .idea
-src/app/languages
+src/app/languagessrc/app/script/config/telegram-config.ts
+
+src/app/script/config/telegram-config.ts

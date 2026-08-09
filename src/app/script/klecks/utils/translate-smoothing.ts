@@ -3,20 +3,21 @@
  * @param s
  */
 export function translateSmoothing(s: number): number {
+    // Smoother scaling curve for new line smoothing logic (0 to 1)
     if (s == 1) {
-        return 1 - 0.5;
+        return 0; // Off
     }
     if (s == 2) {
-        return 1 - 0.16;
+        return 0.3; // Light
     }
     if (s == 3) {
-        return 1 - 0.035;
+        return 0.6; // Medium
     }
     if (s == 4) {
-        return 1 - 0.0175;
+        return 0.8; // High
     }
     if (s == 5) {
-        return 1 - 0.00875;
+        return 0.92; // Very High
     }
     return s;
 }
