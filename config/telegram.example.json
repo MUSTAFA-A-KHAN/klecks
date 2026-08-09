@@ -1,5 +1,6 @@
 {
   "botToken": "YOUR_TELEGRAM_BOT_TOKEN",
-  "chatId": "YOUR_TELEGRAM_CHAT_ID",
+  "chatId": "OPTIONAL_FALLBACK_CHAT_ID",
+  "webAppUrl": "https://your-domain.example/klecks/",
   "strokesPerSend": 5
 }
