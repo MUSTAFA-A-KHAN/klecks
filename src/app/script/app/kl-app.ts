@@ -1,7 +1,5 @@
 import { TelegramSender } from "../klecks/utils/telegram-sender";
-import { TELEGRAM_CONFIG } from "../../script/config/telegram-config";
-import { TelegramSender } from "../klecks/utils/telegram-sender";
-import { TELEGRAM_CONFIG } from "../../script/config/telegram-config";
+import { TELEGRAM_CONFIG } from "../config/telegram-config";
 import { KL } from '../klecks/kl';
 import { BB } from '../bb/bb';
 import { showIframeModal } from '../klecks/ui/modals/show-iframe-modal';
@@ -1555,27 +1553,19 @@ const layerIndex = currentLayer.index;
                         this.statusOverlay.out("Failed to send: " + err, "error");
                     });
                 },
-                onTelegram: () => {
-                    const canvas = this.klCanvas.getCompleteCanvas(1);
-                    this.telegramSender.sendCanvasToTelegram(canvas, () => {
-                        this.statusOverlay.out("Sent to Telegram", "ok");
-                    }, (err) => {
-                        this.statusOverlay.out("Failed to send: " + err, "error");
-                    });
-                },
-                onTelegram: () => {
-                    const canvas = this.klCanvas.getCompleteCanvas(1);
-                    this.telegramSender.sendCanvasToTelegram(canvas, () => {
-                        this.statusOverlay.out("Sent to Telegram", "ok");
-                    }, (err) => {
-                        this.statusOverlay.out("Failed to send: " + err, "error");
-                    });
-                },
                 onShare: () => {
-                    shareImage();
+                    const canvas = this.klCanvas.getCompleteCanvas(1);
+                    canvasToBlob(canvas, "image/png").then((blob) => {
+                        const file = new File([blob], "sketch.png", { type: "image/png" });
+                        navigator.share({
+                            files: [file],
+                            title: "Klecks Sketch",
+                            text: "Check out my sketch!",
+                        }).catch(console.error);
+                    });
                 },
                 onHelp: () => {
-                    showIframeModal('./help/', !!this.embed);
+                    showIframeModal("./help/", !!this.embed);
                 },
             });
         }
