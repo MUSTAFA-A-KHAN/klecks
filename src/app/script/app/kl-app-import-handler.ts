@@ -8,6 +8,8 @@ import { TRect, TSize2D } from '../bb/bb-types';
 import { throwIfNull, throwIfUndefined } from '../bb/base/base';
 import { getNextLayerId } from '../klecks/history/get-next-layer-id';
 import { detectFiletype } from '../klecks/storage/file-header-detection';
+import { ProcreateBrushParser } from '../klecks/procreate/parser/procreate-parser';
+import { importProcreateBrush } from '../klecks/procreate/engine/procreate-brush-manager';
 
 // todo later:
 // onImage: (project: IKlProject) => void
@@ -595,6 +597,39 @@ export class KlAppImportHandler {
                     };
                     reader.readAsArrayBuffer(f);
                 })(file);
+            } else if (fileType === 'brush') {
+                try {
+                    const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result as ArrayBuffer);
+                        reader.onerror = () => reject(reader.error);
+                        reader.readAsArrayBuffer(file);
+                    });
+
+                    const parsedBrush = await ProcreateBrushParser.parseBrush(arrayBuffer);
+                    importProcreateBrush(parsedBrush);
+
+                    KL.popup({
+                        target: this.klRootEl,
+                        type: 'ok',
+                        message: `Successfully imported Procreate brush: ${parsedBrush.model.name}`,
+                        buttons: ['Ok']
+                    });
+                } catch (e: any) {
+                    KL.popup({
+                        target: this.klRootEl,
+                        type: 'error',
+                        message: `Failed to import Procreate brush.<br/><br/>${e.message}`,
+                        buttons: ['Ok']
+                    });
+                }
+            } else if (fileType === 'brushset') {
+                 KL.popup({
+                    target: this.klRootEl,
+                    type: 'warning',
+                    message: `Importing .brushset files is not fully supported yet in this vertical slice.`,
+                    buttons: ['Ok']
+                });
             } else {
                 hasUnsupportedFile = true;
             }

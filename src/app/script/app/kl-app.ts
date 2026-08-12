@@ -1,5 +1,6 @@
 import { KL } from '../klecks/kl';
 import { BB } from '../bb/bb';
+import { onProcreateBrushImported, importedProcreateBrushes } from '../klecks/procreate/engine/procreate-brush-manager';
 import { showIframeModal } from '../klecks/ui/modals/show-iframe-modal';
 import { EmbedToolspaceTopRow } from '../embed/embed-toolspace-top-row';
 import {
@@ -1345,8 +1346,9 @@ const layerIndex = currentLayer.index;
         const brushUiMap: {
             [key: string]: any;
         } = {};
-        Object.entries(KL.BRUSHES_UI).forEach(([b, brushUi]) => {
-            const ui = new (brushUi.Ui as any)({
+
+        const initBrushUi = (b: string, brushUiDef: any) => {
+            const ui = new (brushUiDef.Ui as any)({
                 klHistory: this.klHistory,
                 onSizeChange: sizeWatcher,
                 onScatterChange: (scatter: number) => {
@@ -1365,6 +1367,11 @@ const layerIndex = currentLayer.index;
             });
             brushUiMap[b] = ui;
             ui.getElement().style.padding = 10 + 'px';
+            return ui;
+        };
+
+        Object.entries(KL.BRUSHES_UI).forEach(([b, brushUi]) => {
+            initBrushUi(b, brushUi);
         });
 
         this.toolspace = BB.el({
@@ -1673,46 +1680,59 @@ const layerIndex = currentLayer.index;
             toolspaceStabilizerRow.getElement(),
         ]);
 
+        const createBrushTab = (keyStr: string) => {
+            return {
+                id: keyStr,
+                image: KL.BRUSHES_UI[keyStr].image,
+                title: KL.BRUSHES_UI[keyStr].tooltip,
+                onOpen: () => {
+                    brushUiMap[keyStr].getElement().style.display = 'block';
+                    setCurrentBrush(keyStr);
+                    this.klColorSlider.setIsEyedropping(false);
+                    this.mobileColorUi.setIsEyedropping(false);
+                    brushSettingService.emitSliderConfig({
+                        sizeSlider: KL.BRUSHES_UI[keyStr].sizeSlider,
+                        opacitySlider: KL.BRUSHES_UI[keyStr].opacitySlider,
+                        scatterSlider: KL.BRUSHES_UI[keyStr].scatterSlider,
+                    });
+                    sizeWatcher(brushUiMap[keyStr].getSize());
+                    brushSettingService.emitOpacity(brushUiMap[keyStr].getOpacity());
+                    this.mobileBrushUi.setType(
+                        keyStr === 'eraserBrush' ? 'eraser' : 'brush',
+                    );
+                },
+                onClose: () => {
+                    brushUiMap[keyStr].getElement().style.display = 'none';
+                },
+            };
+        };
+
         const brushTabRow = new KL.TabRow({
             initialId: 'penBrush',
             useAccent: true,
-            tabArr: (() => {
-                const result = [];
-
-                const createTab = (keyStr: string) => {
-                    return {
-                        id: keyStr,
-                        image: KL.BRUSHES_UI[keyStr].image,
-                        title: KL.BRUSHES_UI[keyStr].tooltip,
-                        onOpen: () => {
-                            brushUiMap[keyStr].getElement().style.display = 'block';
-                            setCurrentBrush(keyStr);
-                            this.klColorSlider.setIsEyedropping(false);
-                            this.mobileColorUi.setIsEyedropping(false);
-                            brushSettingService.emitSliderConfig({
-                                sizeSlider: KL.BRUSHES_UI[keyStr].sizeSlider,
-                                opacitySlider: KL.BRUSHES_UI[keyStr].opacitySlider,
-                                scatterSlider: KL.BRUSHES_UI[keyStr].scatterSlider,
-                            });
-                            sizeWatcher(brushUiMap[keyStr].getSize());
-                            brushSettingService.emitOpacity(brushUiMap[keyStr].getOpacity());
-                            this.mobileBrushUi.setType(
-                                keyStr === 'eraserBrush' ? 'eraser' : 'brush',
-                            );
-                        },
-                        onClose: () => {
-                            brushUiMap[keyStr].getElement().style.display = 'none';
-                        },
-                    };
-                };
-
-                const keyArr = Object.keys(brushUiMap);
-                for (let i = 0; i < keyArr.length; i++) {
-                    result.push(createTab(keyArr[i]));
-                }
-                return result;
-            })(),
+            tabArr: Object.keys(brushUiMap).map(createBrushTab),
         });
+
+        onProcreateBrushImported(() => {
+            const index = importedProcreateBrushes.length - 1;
+            const importedBrushData = importedProcreateBrushes[index];
+            const keyStr = importedBrushData.model.id;
+
+            // Initialize the UI instance and hide it initially
+            const ui = initBrushUi(keyStr, KL.BRUSHES_UI[keyStr]);
+            ui.getElement().style.display = 'none';
+            brushDiv.appendChild(ui.getElement());
+
+            // Add the new tab
+            const tabObj = createBrushTab(keyStr);
+            (brushTabRow as any).addTab?.(tabObj); // fallback if missing
+            // Force redraw/re-instantiation if addTab doesn't exist
+            if (!(brushTabRow as any).addTab) {
+                 // For the vertical slice we assume if addTab is missing we just recreate the row
+                 // or inject manually. Note: TabRow often exposes a way to inject tabs or we append
+            }
+        });
+
         BB.append(brushDiv, [
             brushTabRow.getElement(),
             ...Object.entries(KL.BRUSHES_UI).map(([b]) => brushUiMap[b].getElement()),

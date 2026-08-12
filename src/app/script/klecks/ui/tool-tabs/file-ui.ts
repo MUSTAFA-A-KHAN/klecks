@@ -138,7 +138,7 @@ export class FileUi {
             });
             this.importInput.type = 'file';
             this.importInput.multiple = true;
-            this.importInput.accept = 'image/*,.psd'; // .psd needed for chrome, although it's image/vnd.adobe.photoshop
+            this.importInput.accept = 'image/*,.psd,.brush,.brushset'; // .psd needed for chrome, although it's image/vnd.adobe.photoshop
             const saveButton = BB.el({
                 tagName: 'button',
                 className: 'grid-button grid-button--filter',

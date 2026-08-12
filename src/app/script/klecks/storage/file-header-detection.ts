@@ -1,5 +1,5 @@
 // image - png, jpg, webp, whatever the browser natively supports
-export type TSupportedFileType = 'image' | 'psd';
+export type TSupportedFileType = 'image' | 'psd' | 'brush' | 'brushset';
 
 function isBufferMatch(buffer: Uint8Array, bytes: (number | undefined)[]) {
     return bytes.every((byte, index) => {
@@ -17,6 +17,12 @@ export async function detectFiletype(file: File): Promise<TSupportedFileType | u
     const extension = nameSplit[nameSplit.length - 1].toLowerCase();
     if (file.type.match('image/vnd.adobe.photoshop') || extension === 'psd') {
         return 'psd';
+    }
+    if (extension === 'brush') {
+        return 'brush';
+    }
+    if (extension === 'brushset') {
+        return 'brushset';
     }
 
     if (file.type.match('image.*')) {
@@ -69,6 +75,12 @@ export async function detectFiletype(file: File): Promise<TSupportedFileType | u
             ])
         ) {
             return 'image';
+        }
+
+        // ZIP (often used by .brush and .brushset): 'PK\x03\x04'
+        if (isBufferMatch(arr, [0x50, 0x4b, 0x03, 0x04])) {
+            if (extension === 'brush') return 'brush';
+            if (extension === 'brushset') return 'brushset';
         }
     } catch (e) {
         // ...

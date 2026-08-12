@@ -20,14 +20,17 @@
     "deploy": "npm run lang:build && npm run build && gh-pages -d dist"
   },
   "devDependencies": {
+    "@parcel/optimizer-image": "^2.16.1",
     "gh-pages": "^6.0.0"
   },
   "dependencies": {
     "@parcel/transformer-glsl": "2.16.1",
     "@parcel/transformer-sass": "2.16.1",
+    "@plist/binary.parse": "^1.1.0",
     "@tldraw/tldraw": "^4.2.0",
     "ag-psd": "28.3.1",
-    "buffer": "6.0.3",
+    "buffer": "^6.0.3",
+    "fflate": "^0.8.3",
     "js-beautify": "1.15.4",
     "json5": "2.2.3",
     "mdn-polyfills": "5.20.0",
