@@ -16,8 +16,8 @@ export const watercolorBrushUi = (function () {
     tooltip: LANG("brush-watercolor"),
     sizeSlider: {
       min: 0.5,
-      max: 100,
-      curve: BB.powerSplineInput(0.5, 100, 0.1),
+      max: 1000,
+      curve: BB.powerSplineInput(0.5, 1000, 0.1),
     },
     opacitySlider: {
       min: 1 / 100,

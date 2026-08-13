@@ -40,7 +40,7 @@ export class WatercolorBrush {
   private localColOld: any;
 
   private brushAlpha: HTMLCanvasElement;
-
+private brushAlphaKey = "";
   // noise arrays
   private seed: number;
   private perm: Uint8Array;
@@ -187,14 +187,40 @@ export class WatercolorBrush {
     return 32 * (O + D + I + N);
   }
 
-  private createBrushAlpha(size: number): HTMLCanvasElement {
-    if (
-      this.brushAlpha.width !== size * 2 ||
-      this.brushAlpha.height !== size * 2
-    ) {
-      this.brushAlpha.width = size * 2;
-      this.brushAlpha.height = size * 2;
+  private normalizePressure(p: number): number {
+    return Math.abs(p - 0.12) < 0.001 ? 1 : p;
+}
+ private createBrushAlpha(size: number): HTMLCanvasElement {
+  
+    size = Math.max(1, Math.round(size));
+
+    const key = [
+        size,
+        this.opacity,
+        this.color.r,
+        this.color.g,
+        this.color.b,
+        this.bleeding,
+        this.edgeWidth,
+        this.edgeConcentration,
+        this.edgeWobble,
+        this.seed,
+    ].join("|");
+
+    if (key === this.brushAlphaKey) {
+        return this.brushAlpha;
     }
+
+    this.brushAlphaKey = key;
+
+    if (
+        this.brushAlpha.width !== size * 2 ||
+        this.brushAlpha.height !== size * 2
+    ) {
+        this.brushAlpha.width = size * 2;
+        this.brushAlpha.height = size * 2;
+    }
+
     const ctx = this.brushAlpha.getContext("2d")!;
     ctx.clearRect(0, 0, size * 2, size * 2);
 
@@ -305,9 +331,12 @@ export class WatercolorBrush {
       const localPressure =
         this.lastInput2.pressure * (1 - factor) + pressure * factor;
       const localOpacity = this.opacity;
-      const localSize = Math.max(0.1, localPressure * this.size);
+      const effectivePressure = this.normalizePressure(localPressure);
+      const localSize = Math.max(0.1, effectivePressure * this.size);
+      // const localSize = Math.max(0.1, localPressure * this.size);
 
       this.drawDot(val.x, val.y, localSize, localOpacity);
+      
     };
 
     if (x === undefined || y === undefined) {
@@ -425,9 +454,12 @@ export class WatercolorBrush {
     this.seed = Math.random();
 
     p = Math.max(0, Math.min(1, p));
-    const localSize = Math.max(0.1, p * this.size);
+    const localPressure = this.normalizePressure(p);
+    const localSize = Math.max(0.1, localPressure * this.size);
 
-    this.drawDot(x, y, localSize, this.opacity);
+    // this.drawDot(x, y, localSize, this.opacity);
+    this.lastInput = { x, y, pressure: p };
+this.lastInput2 = { x, y, pressure: p };
 
     this.bezierLine = new BB.BezierLine();
     this.bezierLine.add(x, y, 0, () => {});
