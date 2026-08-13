@@ -3,7 +3,7 @@ import { ShapeRecognition } from '../bb/math/shape-recognition';
 
 export type TConsoleApi = {
     readonly draw: (path: TVector2D[]) => void;
-    readonly recognizeShape: (path: TVector2D[]) => 'circle' | 'rectangle' | 'line' | null;
+    readonly recognizeShape: (path: TVector2D[]) => Promise<'circle' | 'rectangle' | 'line' | null>;
     readonly help: () => void;
 };
 
@@ -18,9 +18,9 @@ export function createConsoleApi(p: { onDraw: (path: TVector2D[]) => void }): TC
         draw: (path: TVector2D[]): void => {
             p.onDraw(path);
         },
-        recognizeShape: (path: TVector2D[]): 'circle' | 'rectangle' | 'line' | null => {
+        recognizeShape: async (path: TVector2D[]): Promise<'circle' | 'rectangle' | 'line' | null> => {
             console.log('Shape recognition triggered with', path.length, 'points');
-            const recognizedShape = ShapeRecognition.recognizeShapeFromPoints(path);
+            const recognizedShape = await ShapeRecognition.recognizeShapeFromPoints(path);
             console.log(`Recognized shape: ${recognizedShape || 'unknown'}`);
             return recognizedShape;
         },
