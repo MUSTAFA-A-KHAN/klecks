@@ -2,10 +2,11 @@ import { BB } from '../../bb/bb';
 import { TelegramBrush, BrushConfig } from '../brushes/TelegramBrush';
 import { TBrushUi } from '../kl-types';
 import { KlSlider } from '../ui/components/kl-slider';
+import brushIconImg from 'url:/src/app/img/ui/brush-pen.svg';
 
 export function createTelegramBrushUi(name: string, config: BrushConfig, langKey: string): TBrushUi<TelegramBrush> {
     const brushInterface = {
-        image: 'assets/brush-icon-placeholder.svg', // Update with actual icon if available
+        image: brushIconImg,
         tooltip: langKey,
         sizeSlider: {
             min: 0.5,
@@ -21,6 +22,11 @@ export function createTelegramBrushUi(name: string, config: BrushConfig, langKey
                 [1, 1],
             ],
         },
+        scatterSlider: {
+            min: 0,
+            max: 100,
+            curve: BB.powerSplineInput(0, 100, 0.1, 2.5),
+        },
     } as TBrushUi<TelegramBrush>;
 
     brushInterface.Ui = function (p) {
@@ -29,6 +35,7 @@ export function createTelegramBrushUi(name: string, config: BrushConfig, langKey
 
         let sizeSlider: KlSlider;
         let opacitySlider: KlSlider;
+        let scatterSlider: KlSlider;
 
         function init() {
             sizeSlider = new KlSlider({
@@ -59,7 +66,21 @@ export function createTelegramBrushUi(name: string, config: BrushConfig, langKey
                 }
             });
 
-            div.append(sizeSlider.getElement(), opacitySlider.getElement());
+            scatterSlider = new KlSlider({
+                label: 'Scatter',
+                width: 225,
+                height: 30,
+                min: brushInterface.scatterSlider.min,
+                max: brushInterface.scatterSlider.max,
+                value: brush.getScatter(),
+                curve: brushInterface.scatterSlider.curve,
+                onChange: (val) => {
+                    brush.setScatter(val);
+                    p.onScatterChange(val);
+                }
+            });
+
+            div.append(sizeSlider.getElement(), opacitySlider.getElement(), scatterSlider.getElement());
         }
 
         init();
@@ -71,7 +92,7 @@ export function createTelegramBrushUi(name: string, config: BrushConfig, langKey
         this.getOpacity = () => brush.getOpacity();
         this.setOpacity = (o) => { brush.setOpacity(o); opacitySlider.setValue(o); };
         this.getScatter = () => brush.getScatter();
-        this.setScatter = (s) => { brush.setScatter(s); };
+        this.setScatter = (s) => { brush.setScatter(s); scatterSlider.setValue(s); };
         this.setColor = (c) => brush.setColor(c);
         this.setLayer = (l) => brush.setContext(l.context);
         this.startLine = (x, y, p) => brush.startLine(x, y, p);
