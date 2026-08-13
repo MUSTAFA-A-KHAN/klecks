@@ -18,6 +18,7 @@ import { ProjectStore } from '../klecks/storage/project-store';
 import { SaveReminder } from '../klecks/ui/components/save-reminder';
 import { KlCanvas, TKlCanvasLayer } from '../klecks/canvas/kl-canvas';
 import { TelegramIntegration } from '../klecks/telegram/telegram-integration';
+import { TelegramAdapter } from '../klecks/telegram/TelegramAdapter';
 
 import { LANG } from '../language/language';
 import { LocalStorage } from '../bb/base/local-storage';
