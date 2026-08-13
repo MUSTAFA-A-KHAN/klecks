@@ -20,8 +20,8 @@
     "deploy": "npm run lang:build && npm run build && gh-pages -d dist"
   },
   "devDependencies": {
-    "gh-pages": "^6.0.0",
-    "@parcel/optimizer-image": "2.16.1"
+    "@parcel/optimizer-image": "2.16.1",
+    "gh-pages": "^6.0.0"
   },
   "dependencies": {
     "@parcel/transformer-glsl": "2.16.1",
@@ -36,6 +36,7 @@
     "polygon-clipping": "0.15.7",
     "simplex-noise": "^4.0.3",
     "transformation-matrix": "3.1.0",
-    "tsparticles": "^3.9.1"
+    "tsparticles": "^3.9.1",
+    "typescript": "^7.0.2"
   }
 }
