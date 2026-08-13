@@ -97,6 +97,9 @@ Renaming a key across multiple language files:
     hint: 'Made up brush name, derived from drawing applications "Webchemy" and "Alchemy"',
     value: 'Chemy',
   },
+  "brush-watercolor": {
+    "value": "Watercolor"
+  },
   "brush-smudge": {
     hint: 'Common brush/tool in image editing software. Smudges colors around canvas.',
     value: 'Smudge',
