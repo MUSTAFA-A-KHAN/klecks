@@ -5,6 +5,7 @@ import { readProfile, TProcreateProfile } from './brush-profile';
 export type TImportedTip = {
     name: string; png: Uint8Array; grain?: Uint8Array; spacing: number; inverted: boolean;
     profile: TProcreateProfile; unhandled: string[]; archive: Uint8Array;
+    secondary?: { archive: Uint8Array; shape?: Uint8Array; grain?: Uint8Array };
 };
 export type TImportResult = { tips: TImportedTip[]; skipped: string[] };
 const MAX_FILE = 50 * 1024 * 1024;
@@ -19,18 +20,24 @@ function settings(bytes: Uint8Array) {
     if (!Array.isArray(objects) || !Number.isInteger(root)) throw new Error('Invalid brush metadata');
     const brush = objects[root];
     if (!brush || typeof brush !== 'object') throw new Error('Invalid brush metadata');
+    let budget = 50000;
     const resolve = (value: any, depth = 0): any => {
-        if (depth > 10) throw new Error('Invalid metadata reference');
+        if (depth > 30 || --budget < 0) throw new Error('Invalid metadata reference');
         if (value && typeof value === 'object' && 'CF$UID' in value) {
             const id = value['CF$UID'];
             if (!Number.isInteger(id) || id < 0 || id >= objects.length) throw new Error('Invalid metadata reference');
             return id === 0 ? null : resolve(objects[id], depth + 1);
         }
+        if (Array.isArray(value)) return value.map((item) => resolve(item, depth + 1));
+        if (value && typeof value === 'object' && !(value instanceof Uint8Array)) {
+            return Object.fromEntries(Object.entries(value).filter(([key]) => key !== '$class')
+                .map(([key, item]) => [key, resolve(item, depth + 1)]));
+        }
         return value;
     };
     const raw = Object.fromEntries(Object.entries(brush).map(([key, value]) => [key, resolve(value)]));
     const name = raw.name;
-    const spacing = brush.plotSpacing;
+    const spacing = raw.plotSpacing;
     return {
         name: typeof name === 'string' ? name.slice(0, 200) : undefined,
         // Procreate spacing is relative to diameter; PenBrush uses radius.
@@ -54,7 +61,7 @@ export function extractProcreate(bytes: Uint8Array, filename: string): TImportRe
             filter: (entry) => {
                 if (++entries > 10000) throw new Error('Too many files in brush archive.');
                 if (/(^|\/)(__MACOSX|Reset|QuickLook)(\/|$)/i.test(entry.name)) return false;
-                if (!/(^|\/)(Shape\.png|Grain\.png|Brush\.archive)$/i.test(entry.name) &&
+                if (!/(^|\/)(Shape\.png|Grain\.png|Brush\.archive|brushset\.plist)$/i.test(entry.name) &&
                     (nested || !/\.brush$/i.test(entry.name))) return false;
                 expanded += entry.originalSize;
                 if (entry.originalSize > MAX_FILE || expanded > MAX_EXPANDED) {
@@ -64,9 +71,23 @@ export function extractProcreate(bytes: Uint8Array, filename: string): TImportRe
             },
         });
         const paths = Object.keys(files);
-        const folders = new Set(paths.filter((path) => /(^|\/)(Shape\.png|Brush\.archive)$/i.test(path))
+        const folders = new Set(paths.filter((path) => /(^|\/)(Shape\.png|Brush\.archive)$/i.test(path) &&
+            !/(^|\/)Sub\d+(\/|$)/i.test(path))
             .map((path) => path.slice(0, path.lastIndexOf('/') + 1)));
-        for (const folder of folders) {
+        let orderedFolders = [...folders];
+        if (files['brushset.plist']) {
+            try {
+                const order = readPlist(files['brushset.plist']).brushes;
+                if (Array.isArray(order)) orderedFolders.sort((a, b) => {
+                    const rank = (folder: string) => {
+                        const index = order.indexOf(folder.replace(/\/$/, ''));
+                        return index < 0 ? order.length : index;
+                    };
+                    return rank(a) - rank(b);
+                });
+            } catch { /* A damaged manifest does not invalidate usable brush records. */ }
+        }
+        for (const folder of orderedFolders) {
             if (result.tips.length + result.skipped.length >= MAX_BRUSHES) {
                 throw new Error('Import at most 100 brushes at a time.');
             }
@@ -77,13 +98,23 @@ export function extractProcreate(bytes: Uint8Array, filename: string): TImportRe
             try {
                 if (!archive) throw new Error('Missing metadata');
                 const meta = settings(files[archive]);
+                const secondaryArchive = paths.find((path) => path.toLowerCase() === (folder + 'Sub01/Brush.archive').toLowerCase());
+                let secondary: TImportedTip['secondary'];
+                if (secondaryArchive) {
+                    const find = (name: string) => {
+                        const path = paths.find((item) => item.toLowerCase() === (folder + 'Sub01/' + name).toLowerCase());
+                        return path ? files[path] : undefined;
+                    };
+                    secondary = { archive: files[secondaryArchive], shape: find('Shape.png'), grain: find('Grain.png') };
+                    meta.unhandled.push('Dual brush component (Sub01)');
+                }
                 if (!shape) {
                     result.skipped.push(meta.name || fallback);
                     continue;
                 }
                 if (!grain && meta.bundledGrain) meta.unhandled.push(`Missing grain: ${meta.bundledGrain}`);
                 result.tips.push({ ...meta, name: meta.name || fallback, png: files[shape],
-                    grain: grain ? files[grain] : undefined, archive: files[archive] });
+                    grain: grain ? files[grain] : undefined, archive: files[archive], secondary });
             } catch {
                 result.skipped.push(fallback);
             }

@@ -4,7 +4,8 @@ export type TSavedTip = {
     id: string; name: string; spacing: number; image: string;
     grain?: string; profile?: TProcreateProfile; unhandled?: string[];
     /** Original bytes retained for improved importers; old tip-only records remain valid. */
-    source?: { archive: Uint8Array; shape: Uint8Array; grain?: Uint8Array };
+    source?: { archive: Uint8Array; shape: Uint8Array; grain?: Uint8Array;
+        secondary?: { archive: Uint8Array; shape?: Uint8Array; grain?: Uint8Array } };
 };
 
 function database(): Promise<IDBDatabase> {

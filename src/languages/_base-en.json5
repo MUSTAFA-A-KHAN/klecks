@@ -19,7 +19,7 @@ Renaming a key across multiple language files:
   "brush-import-remove": "Remove imported brush",
   "brush-import-note": "Imports shapes, grain and brush dynamics. Size and Opacity control strength; pressure follows the imported brush. Saved in this browser.",
   "brush-import-compatibility": "Brush compatibility",
-  "brush-import-approximation": "Klecks approximates Procreate rendering. Wet mixing, dual brushes, taper, tilt, color dynamics and custom pressure curves are not reproduced.",
+  "brush-import-approximation": "Klecks approximates Procreate rendering and interpolates pressure curves. Wet mixing, dual brushes, taper, tilt, color dynamics and special blend modes are not reproduced.",
   "brush-import-unhandled": "Additional settings not applied:",
   "brush-import-legacy": "This is an older tip-only import. Reimport the original file to include grain and dynamics.",
   "brush-import-loading": "Importing brushes…",

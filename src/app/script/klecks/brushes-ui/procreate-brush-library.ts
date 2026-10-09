@@ -95,6 +95,7 @@ export function createProcreateBrushLibrary(p: {
         p.onSelect(canvas, tip.spacing, tip.profile, grain);
         selected = select.value = id;
         preview.src = tip.image;
+        preview.alt = tip.name;
         preview.hidden = false;
         report.hidden = false;
         reportText.textContent = tip.profile
@@ -132,7 +133,7 @@ export function createProcreateBrushLibrary(p: {
                         (value) => value.toString(16).padStart(2, '0')).join('');
                     added.push({ id, name: tip.name, spacing: tip.spacing, image: canvas.toDataURL(),
                         grain: grain?.toDataURL(), profile: tip.profile, unhandled: tip.unhandled,
-                        source: { archive: tip.archive, shape: tip.png, grain: tip.grain } });
+                        source: { archive: tip.archive, shape: tip.png, grain: tip.grain, secondary: tip.secondary } });
                 } catch { result.skipped.push(tip.name); }
             }
             tips.push(...added);

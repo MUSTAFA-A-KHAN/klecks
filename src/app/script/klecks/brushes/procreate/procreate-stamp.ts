@@ -8,6 +8,9 @@ export class ProcreateStamp {
     private lastX = 0;
     private lastY = 0;
     private travel = 0;
+    private readonly tiles = new Map<string, {
+        original: HTMLCanvasElement; coverage: HTMLCanvasElement; pixels: ImageData;
+    }>();
 
     constructor(
         private readonly shape: HTMLCanvasElement,
@@ -36,7 +39,67 @@ export class ProcreateStamp {
         this.lastX = x;
         this.lastY = y;
         this.travel = 0;
+        this.tiles.clear();
         this.startAngle = this.profile.randomStart ? this.random() * Math.PI * 2 : 0;
+    }
+
+    /** Maximum per-stroke coverage. Tiles avoid cloning a potentially very large layer. */
+    private transfer(ctx: CanvasRenderingContext2D, left: number, top: number,
+        alpha: number, lockAlpha: boolean): void {
+        const tileSize = 128;
+        const x0 = Math.floor(left);
+        const y0 = Math.floor(top);
+        const right = Math.min(ctx.canvas.width, x0 + this.stamp.width);
+        const bottom = Math.min(ctx.canvas.height, y0 + this.stamp.height);
+        const dab = this.stamp.getContext('2d')!.getImageData(0, 0, this.stamp.width, this.stamp.height);
+        for (let ty = Math.max(0, Math.floor(y0 / tileSize) * tileSize); ty < bottom; ty += tileSize) {
+            for (let tx = Math.max(0, Math.floor(x0 / tileSize) * tileSize); tx < right; tx += tileSize) {
+                const key = `${tx},${ty}`;
+                let tile = this.tiles.get(key);
+                if (!tile) {
+                    const original = document.createElement('canvas');
+                    const coverage = document.createElement('canvas');
+                    original.width = coverage.width = Math.min(tileSize, ctx.canvas.width - tx);
+                    original.height = coverage.height = Math.min(tileSize, ctx.canvas.height - ty);
+                    original.getContext('2d')!.drawImage(ctx.canvas, tx, ty, original.width,
+                        original.height, 0, 0, original.width, original.height);
+                    tile = { original, coverage, pixels: coverage.getContext('2d')!
+                        .createImageData(coverage.width, coverage.height) };
+                    this.tiles.set(key, tile);
+                }
+                const sx = Math.max(x0, tx);
+                const sy = Math.max(y0, ty);
+                const ex = Math.min(right, tx + tileSize);
+                const ey = Math.min(bottom, ty + tileSize);
+                for (let y = sy; y < ey; y++) {
+                    for (let x = sx; x < ex; x++) {
+                        const src = ((y - y0) * this.stamp.width + x - x0) * 4;
+                        const dst = ((y - ty) * tile.coverage.width + x - tx) * 4;
+                        const opacity = Math.round(dab.data[src + 3] * alpha);
+                        if (opacity <= tile.pixels.data[dst + 3]) continue;
+                        tile.pixels.data[dst] = dab.data[src];
+                        tile.pixels.data[dst + 1] = dab.data[src + 1];
+                        tile.pixels.data[dst + 2] = dab.data[src + 2];
+                        tile.pixels.data[dst + 3] = opacity;
+                    }
+                }
+                tile.coverage.getContext('2d')!.putImageData(tile.pixels, 0, 0,
+                    sx - tx, sy - ty, ex - sx, ey - sy);
+                // drawImage/clearRect respect the selection clip; putImageData on the layer would not.
+                ctx.save();
+                ctx.globalAlpha = 1;
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.clearRect(sx, sy, ex - sx, ey - sy);
+                ctx.drawImage(tile.original, sx - tx, sy - ty, ex - sx, ey - sy, sx, sy, ex - sx, ey - sy);
+                ctx.globalCompositeOperation = lockAlpha ? 'source-atop' : 'source-over';
+                ctx.drawImage(tile.coverage, sx - tx, sy - ty, ex - sx, ey - sy, sx, sy, ex - sx, ey - sy);
+                ctx.restore();
+            }
+        }
+    }
+
+    end(): void {
+        this.tiles.clear();
     }
 
     draw(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number,
@@ -53,7 +116,7 @@ export class ProcreateStamp {
             const offset = Math.sqrt(this.random()) * radius * 2 * p.jitter;
             const cx = x + Math.cos(jitterAngle) * offset;
             const cy = y + Math.sin(jitterAngle) * offset;
-            const rotation = this.startAngle + angle * Math.PI / 180 * p.rotation +
+            const rotation = p.angle + this.startAngle + angle * Math.PI / 180 * p.rotation +
                 (this.random() * 2 - 1) * Math.PI * p.scatter;
             const side = Math.max(2, Math.ceil(size * 2 * Math.SQRT2) + 2);
             this.stamp.width = this.stamp.height = side;
@@ -61,7 +124,9 @@ export class ProcreateStamp {
             stampCtx.save();
             stampCtx.translate(side / 2, side / 2);
             stampCtx.rotate(rotation);
-            stampCtx.scale(p.flipX ? -1 : 1, p.flipY ? -1 : 1);
+            const flipX = p.flipX !== (p.flipXJitter && this.random() < 0.5);
+            const flipY = p.flipY !== (p.flipYJitter && this.random() < 0.5);
+            stampCtx.scale(flipX ? -1 : 1, (flipY ? -1 : 1) * p.roundness);
             stampCtx.drawImage(this.shape, -size, -size, size * 2, size * 2);
             stampCtx.restore();
             stampCtx.globalCompositeOperation = 'source-in';
@@ -84,11 +149,16 @@ export class ProcreateStamp {
             const alpha = opacity * p.flow * (1 - p.opacityJitter * this.random()) *
                 Math.exp(-p.falloff * this.travel / Math.max(1, radius * 2));
             if (alpha <= 0) continue;
-            ctx.save();
-            ctx.globalCompositeOperation = lockAlpha ? 'source-atop' : 'source-over';
-            ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-            ctx.drawImage(this.stamp, cx - side / 2, cy - side / 2);
-            ctx.restore();
+            if (p.maxTransfer) {
+                this.transfer(ctx, cx - side / 2, cy - side / 2,
+                    Math.max(0, Math.min(1, alpha)), lockAlpha);
+            } else {
+                ctx.save();
+                ctx.globalCompositeOperation = lockAlpha ? 'source-atop' : 'source-over';
+                ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+                ctx.drawImage(this.stamp, cx - side / 2, cy - side / 2);
+                ctx.restore();
+            }
             bounds.x1 = Math.min(bounds.x1, Math.floor(cx - side / 2));
             bounds.y1 = Math.min(bounds.y1, Math.floor(cy - side / 2));
             bounds.x2 = Math.max(bounds.x2, Math.ceil(cx + side / 2));

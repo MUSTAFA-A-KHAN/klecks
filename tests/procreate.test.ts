@@ -4,6 +4,7 @@ import test from 'node:test';
 import { zipSync } from 'fflate';
 import { readBinaryPlist } from '../src/app/script/klecks/brushes/procreate/binary-plist';
 import { extractProcreate } from '../src/app/script/klecks/brushes/procreate/import-procreate';
+import { readProfile, pressureFactor, curvePressure } from '../src/app/script/klecks/brushes/procreate/brush-profile';
 
 const fixture = (name: string) => new Uint8Array(readFileSync(new URL(`./fixtures/${name}`, import.meta.url)));
 
@@ -57,4 +58,38 @@ test('rejects malformed plist offsets and recursive object graphs', () => {
     cycle[26] = 1;
     cycle[42] = 10;
     assert.throws(() => readBinaryPlist(cycle), /Invalid/);
+});
+
+test('maps archived flow/depth/count fields and clamps invalid dynamic settings', () => {
+    const { profile, unhandled } = readProfile({ shapeCount: 0.5, grainDepth: 0.25,
+        dynamicsGlazedFlow: 0.4, dynamicsPressureSize: -0.5, shapeScatter: 1.6,
+        shapeRoundness: NaN, mysteryEffect: 42 });
+    assert.equal(profile.count, 8);
+    assert.equal(profile.grainDepth, 0.25);
+    assert.equal(profile.flow, 0.4);
+    assert.equal(profile.scatter, 1.6);
+    assert.equal(profile.roundness, 1);
+    assert.deepEqual(unhandled, ['mysteryEffect']);
+    assert.equal(pressureFactor(0, 1, 0.1), 0.1);
+    assert.equal(pressureFactor(1, -0.5, 0), 0.5);
+});
+
+test('reads archived pressure point arrays and interpolates their response', () => {
+    const { profile } = readProfile({ dynamicsPressureSizeCurve: { points: {
+        'NS.objects': ['{0.000000, 0.000000}', '{0.5, 0.25}', '{1.000000, 1.000000}'],
+    } } });
+    assert.equal(curvePressure(0.5, profile.sizeCurve), 0.25);
+    assert.equal(curvePressure(0.75, profile.sizeCurve), 0.625);
+    assert.equal(curvePressure(-1, profile.sizeCurve), 0);
+    assert.equal(curvePressure(2, profile.sizeCurve), 1);
+});
+
+test('retains grain and secondary assets, preserves set ordering, and avoids extra dual entries', () => {
+    const result = extractProcreate(fixture('advanced.brushset'), 'advanced.brushset');
+    assert.deepEqual(result.tips.map((tip) => tip.name), ['Solid', 'Textured', 'Dual']);
+    assert.ok(result.tips[1].grain?.length);
+    assert.ok(result.tips[2].secondary?.archive.length);
+    assert.ok(result.tips[2].secondary?.shape?.length);
+    assert.ok(result.tips[2].unhandled.includes('Dual brush component (Sub01)'));
+    assert.deepEqual(result.skipped, []);
 });

@@ -11,7 +11,7 @@ import { MultiPolygon } from 'polygon-clipping';
 import { getSelectionPath2d } from '../../bb/multi-polygon/get-selection-path-2d';
 import { boundsOverlap, integerBounds } from '../../bb/math/math';
 import { getMultiPolyBounds } from '../../bb/multi-polygon/get-multi-polygon-bounds';
-import { pressureFactor, TProcreateProfile } from './procreate/brush-profile';
+import { curvePressure, pressureFactor, readProfile, TProcreateProfile } from './procreate/brush-profile';
 import { ProcreateStamp } from './procreate/procreate-stamp';
 
 const ALPHA_CIRCLE = 0;
@@ -125,7 +125,8 @@ export class PenBrush {
     private calcOpacity(pressure: number): number {
         if (this.procreateStamp) {
             const p = this.procreateStamp.profile;
-            return this.settingOpacity * p.opacity * pressureFactor(pressure, p.pressureOpacity, p.minOpacity);
+            return this.settingOpacity * p.opacity * pressureFactor(
+                curvePressure(pressure, p.opacityCurve), p.pressureOpacity, p.minOpacity);
         }
         return this.settingOpacity * (this.settingHasOpacityPressure ? pressure * pressure : 1);
     }
@@ -133,7 +134,7 @@ export class PenBrush {
     private calcSize(pressure: number): number {
         const p = this.procreateStamp?.profile;
         return Math.max(0.1, this.settingSize * (p
-            ? pressureFactor(pressure, p.pressureSize, p.minSize)
+            ? pressureFactor(curvePressure(pressure, p.sizeCurve), p.pressureSize, p.minSize)
             : this.settingHasSizePressure ? pressure : 1));
     }
 
@@ -364,6 +365,7 @@ export class PenBrush {
         this.context.restore();
 
         this.inputIsDrawing = false;
+        this.procreateStamp?.end();
 
         if (this.settingAlphaId === ALPHA_SQUARE && !this.hasDrawnDot) {
             // find max pressure input, use that one
@@ -434,6 +436,7 @@ export class PenBrush {
                 angle,
             );
         }
+        this.procreateStamp?.end();
         this.context.restore();
 
         if (this.changedTiles.some((item) => item)) {
@@ -455,7 +458,8 @@ export class PenBrush {
     setCustomTip(canvas: HTMLCanvasElement, spacing: number,
         profile?: TProcreateProfile, grain?: HTMLCanvasElement): void {
         this.customAlpha = canvas;
-        this.procreateStamp = profile ? new ProcreateStamp(canvas, grain, profile) : undefined;
+        this.procreateStamp = profile
+            ? new ProcreateStamp(canvas, grain, { ...readProfile({}).profile, ...profile }) : undefined;
         this.customSpacing = Math.max(0.04, Math.min(4, spacing));
         this.settingAlphaId = 4;
         this.updateAlphaCanvas();
