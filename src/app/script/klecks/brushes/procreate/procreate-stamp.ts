@@ -2,8 +2,11 @@ import { TProcreateProfile } from './brush-profile';
 
 /** Canvas implementation of documented brush concepts. Numerical response is approximate. */
 export class ProcreateStamp {
+    // Reused across dabs: resizing a canvas reallocates it, which is far too slow per dab.
     private readonly stamp = document.createElement('canvas');
+    private readonly stampCtx: CanvasRenderingContext2D;
     private readonly grainMask: HTMLCanvasElement | undefined;
+    private readonly grainPattern: CanvasPattern | undefined;
     private startAngle = 0;
     private lastX = 0;
     private lastY = 0;
@@ -33,6 +36,12 @@ export class ProcreateStamp {
             }
             ctx.putImageData(pixels, 0, 0);
         }
+        // Max transfer reads the dab back every time; keep it on the CPU to avoid GPU sync stalls.
+        this.stampCtx = this.stamp.getContext('2d',
+            { willReadFrequently: profile.maxTransfer })!;
+        if (this.grainMask) {
+            this.grainPattern = this.stampCtx.createPattern(this.grainMask, 'repeat')!;
+        }
     }
 
     start(x: number, y: number): void {
@@ -44,14 +53,14 @@ export class ProcreateStamp {
     }
 
     /** Maximum per-stroke coverage. Tiles avoid cloning a potentially very large layer. */
-    private transfer(ctx: CanvasRenderingContext2D, left: number, top: number,
+    private transfer(ctx: CanvasRenderingContext2D, left: number, top: number, side: number,
         alpha: number, lockAlpha: boolean): void {
         const tileSize = 128;
         const x0 = Math.floor(left);
         const y0 = Math.floor(top);
-        const right = Math.min(ctx.canvas.width, x0 + this.stamp.width);
-        const bottom = Math.min(ctx.canvas.height, y0 + this.stamp.height);
-        const dab = this.stamp.getContext('2d')!.getImageData(0, 0, this.stamp.width, this.stamp.height);
+        const right = Math.min(ctx.canvas.width, x0 + side);
+        const bottom = Math.min(ctx.canvas.height, y0 + side);
+        const dab = this.stampCtx.getImageData(0, 0, side, side);
         for (let ty = Math.max(0, Math.floor(y0 / tileSize) * tileSize); ty < bottom; ty += tileSize) {
             for (let tx = Math.max(0, Math.floor(x0 / tileSize) * tileSize); tx < right; tx += tileSize) {
                 const key = `${tx},${ty}`;
@@ -73,7 +82,7 @@ export class ProcreateStamp {
                 const ey = Math.min(bottom, ty + tileSize);
                 for (let y = sy; y < ey; y++) {
                     for (let x = sx; x < ex; x++) {
-                        const src = ((y - y0) * this.stamp.width + x - x0) * 4;
+                        const src = ((y - y0) * side + x - x0) * 4;
                         const dst = ((y - ty) * tile.coverage.width + x - tx) * 4;
                         const opacity = Math.round(dab.data[src + 3] * alpha);
                         if (opacity <= tile.pixels.data[dst + 3]) continue;
@@ -119,8 +128,12 @@ export class ProcreateStamp {
             const rotation = p.angle + this.startAngle + angle * Math.PI / 180 * p.rotation +
                 (this.random() * 2 - 1) * Math.PI * p.scatter;
             const side = Math.max(2, Math.ceil(size * 2 * Math.SQRT2) + 2);
-            this.stamp.width = this.stamp.height = side;
-            const stampCtx = this.stamp.getContext('2d')!;
+            if (this.stamp.width < side) {
+                this.stamp.width = this.stamp.height = Math.max(side, this.stamp.width * 2);
+            }
+            const stampCtx = this.stampCtx;
+            stampCtx.globalCompositeOperation = 'source-over';
+            stampCtx.clearRect(0, 0, side, side);
             stampCtx.save();
             stampCtx.translate(side / 2, side / 2);
             stampCtx.rotate(rotation);
@@ -132,8 +145,8 @@ export class ProcreateStamp {
             stampCtx.globalCompositeOperation = 'source-in';
             stampCtx.fillStyle = color;
             stampCtx.fillRect(0, 0, side, side);
-            if (this.grainMask) {
-                const pattern = stampCtx.createPattern(this.grainMask, 'repeat')!;
+            if (this.grainMask && this.grainPattern) {
+                const pattern = this.grainPattern;
                 // Movement=1 anchors the grain in canvas space; 0 drags it with the tip.
                 const grainSize = p.grainScale * (radius * 2 * (1 - p.grainZoom) + 256 * p.grainZoom);
                 const scale = grainSize / this.grainMask.width;
@@ -145,18 +158,19 @@ export class ProcreateStamp {
                 stampCtx.imageSmoothingEnabled = p.grainFilter;
                 stampCtx.fillStyle = pattern;
                 stampCtx.fillRect(0, 0, side, side);
+                stampCtx.imageSmoothingEnabled = true;
             }
             const alpha = opacity * p.flow * (1 - p.opacityJitter * this.random()) *
                 Math.exp(-p.falloff * this.travel / Math.max(1, radius * 2));
             if (alpha <= 0) continue;
             if (p.maxTransfer) {
-                this.transfer(ctx, cx - side / 2, cy - side / 2,
+                this.transfer(ctx, cx - side / 2, cy - side / 2, side,
                     Math.max(0, Math.min(1, alpha)), lockAlpha);
             } else {
                 ctx.save();
                 ctx.globalCompositeOperation = lockAlpha ? 'source-atop' : 'source-over';
                 ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-                ctx.drawImage(this.stamp, cx - side / 2, cy - side / 2);
+                ctx.drawImage(this.stamp, 0, 0, side, side, cx - side / 2, cy - side / 2, side, side);
                 ctx.restore();
             }
             bounds.x1 = Math.min(bounds.x1, Math.floor(cx - side / 2));
