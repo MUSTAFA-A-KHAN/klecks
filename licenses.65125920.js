@@ -1,4 +1,27 @@
-(0,("undefined"!=typeof globalThis?globalThis:"undefined"!=typeof self?self:"undefined"!=typeof window?window:"undefined"!=typeof global?global:{}).parcelRequire94c2.register)("17YSH",function(e,o){Object.defineProperty(e.exports,"LICENSES",{get:function(){return t},set:void 0,enumerable:!0,configurable:!0});var t=[{title:"glfx.js by Evan Wallace",full:`glfx.js
+(0,("undefined"!=typeof globalThis?globalThis:"undefined"!=typeof self?self:"undefined"!=typeof window?window:"undefined"!=typeof global?global:{}).parcelRequire94c2.register)("2vgBY",function(e,t){Object.defineProperty(e.exports,"LICENSES",{get:function(){return o},set:void 0,enumerable:!0,configurable:!0});let o=[{title:"fflate by Arjun Barrett",full:`fflate
+https://github.com/101arrowz/fflate
+
+MIT License
+
+Copyright (c) 2026 Arjun Barrett
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.`},{title:"glfx.js by Evan Wallace",full:`glfx.js
 https://github.com/evanw/glfx.js
 
 Copyright (C) 2011 by Evan Wallace
@@ -81,4 +104,4 @@ SOFTWARE.
 
 https://www.youtube.com/c/InigoQuilez
 https://iquilezles.org`}]});
-//# sourceMappingURL=licenses.fc8627f9.js.map
+//# sourceMappingURL=licenses.65125920.js.map
