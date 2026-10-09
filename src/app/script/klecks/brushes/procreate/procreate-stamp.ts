@@ -14,6 +14,8 @@ export class ProcreateStamp {
     private readonly tiles = new Map<string, {
         original: HTMLCanvasElement; coverage: HTMLCanvasElement; pixels: ImageData;
     }>();
+    /** Tile regions changed since the last flush, so the layer is written once per draw call. */
+    private readonly dirty = new Map<string, { x1: number; y1: number; x2: number; y2: number }>();
 
     constructor(
         private readonly shape: HTMLCanvasElement,
@@ -54,7 +56,7 @@ export class ProcreateStamp {
 
     /** Maximum per-stroke coverage. Tiles avoid cloning a potentially very large layer. */
     private transfer(ctx: CanvasRenderingContext2D, left: number, top: number, side: number,
-        alpha: number, lockAlpha: boolean): void {
+        alpha: number): void {
         const tileSize = 128;
         const x0 = Math.floor(left);
         const y0 = Math.floor(top);
@@ -80,35 +82,53 @@ export class ProcreateStamp {
                 const sy = Math.max(y0, ty);
                 const ex = Math.min(right, tx + tileSize);
                 const ey = Math.min(bottom, ty + tileSize);
+                const from = dab.data;
+                const to = tile.pixels.data;
+                const tileWidth = tile.coverage.width;
                 for (let y = sy; y < ey; y++) {
                     for (let x = sx; x < ex; x++) {
                         const src = ((y - y0) * side + x - x0) * 4;
-                        const dst = ((y - ty) * tile.coverage.width + x - tx) * 4;
-                        const opacity = Math.round(dab.data[src + 3] * alpha);
-                        if (opacity <= tile.pixels.data[dst + 3]) continue;
-                        tile.pixels.data[dst] = dab.data[src];
-                        tile.pixels.data[dst + 1] = dab.data[src + 1];
-                        tile.pixels.data[dst + 2] = dab.data[src + 2];
-                        tile.pixels.data[dst + 3] = opacity;
+                        const dst = ((y - ty) * tileWidth + x - tx) * 4;
+                        const opacity = Math.round(from[src + 3] * alpha);
+                        if (opacity <= to[dst + 3]) continue;
+                        to[dst] = from[src];
+                        to[dst + 1] = from[src + 1];
+                        to[dst + 2] = from[src + 2];
+                        to[dst + 3] = opacity;
                     }
                 }
-                tile.coverage.getContext('2d')!.putImageData(tile.pixels, 0, 0,
-                    sx - tx, sy - ty, ex - sx, ey - sy);
-                // drawImage/clearRect respect the selection clip; putImageData on the layer would not.
-                ctx.save();
-                ctx.globalAlpha = 1;
-                ctx.globalCompositeOperation = 'source-over';
-                ctx.clearRect(sx, sy, ex - sx, ey - sy);
-                ctx.drawImage(tile.original, sx - tx, sy - ty, ex - sx, ey - sy, sx, sy, ex - sx, ey - sy);
-                ctx.globalCompositeOperation = lockAlpha ? 'source-atop' : 'source-over';
-                ctx.drawImage(tile.coverage, sx - tx, sy - ty, ex - sx, ey - sy, sx, sy, ex - sx, ey - sy);
-                ctx.restore();
+                const region = this.dirty.get(key);
+                this.dirty.set(key, region ? {
+                    x1: Math.min(region.x1, sx), y1: Math.min(region.y1, sy),
+                    x2: Math.max(region.x2, ex), y2: Math.max(region.y2, ey),
+                } : { x1: sx, y1: sy, x2: ex, y2: ey });
             }
         }
     }
 
+    private flush(ctx: CanvasRenderingContext2D, lockAlpha: boolean): void {
+        this.dirty.forEach(({ x1, y1, x2, y2 }, key) => {
+            const tile = this.tiles.get(key)!;
+            const [tx, ty] = key.split(',').map(Number);
+            const w = x2 - x1;
+            const h = y2 - y1;
+            tile.coverage.getContext('2d')!.putImageData(tile.pixels, 0, 0, x1 - tx, y1 - ty, w, h);
+            // drawImage/clearRect respect the selection clip; putImageData on the layer would not.
+            ctx.save();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.clearRect(x1, y1, w, h);
+            ctx.drawImage(tile.original, x1 - tx, y1 - ty, w, h, x1, y1, w, h);
+            ctx.globalCompositeOperation = lockAlpha ? 'source-atop' : 'source-over';
+            ctx.drawImage(tile.coverage, x1 - tx, y1 - ty, w, h, x1, y1, w, h);
+            ctx.restore();
+        });
+        this.dirty.clear();
+    }
+
     end(): void {
         this.tiles.clear();
+        this.dirty.clear();
     }
 
     draw(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number,
@@ -165,7 +185,7 @@ export class ProcreateStamp {
             if (alpha <= 0) continue;
             if (p.maxTransfer) {
                 this.transfer(ctx, cx - side / 2, cy - side / 2, side,
-                    Math.max(0, Math.min(1, alpha)), lockAlpha);
+                    Math.max(0, Math.min(1, alpha)));
             } else {
                 ctx.save();
                 ctx.globalCompositeOperation = lockAlpha ? 'source-atop' : 'source-over';
@@ -178,6 +198,7 @@ export class ProcreateStamp {
             bounds.x2 = Math.max(bounds.x2, Math.ceil(cx + side / 2));
             bounds.y2 = Math.max(bounds.y2, Math.ceil(cy + side / 2));
         }
+        if (this.dirty.size) this.flush(ctx, lockAlpha);
         return Number.isFinite(bounds.x1) ? bounds : undefined;
     }
 }
