@@ -1,10 +1,12 @@
 import { LANG } from '../../language/language';
 import { decodeTip, extractProcreate, MAX_BRUSHES } from '../brushes/procreate/import-procreate';
 import { loadTips, saveTips, TSavedTip } from '../brushes/procreate/tip-storage';
+import { TProcreateProfile } from '../brushes/procreate/brush-profile';
 
 export function createProcreateBrushLibrary(p: {
     isDrawing: () => boolean;
-    onSelect: (canvas: HTMLCanvasElement | undefined, spacing?: number) => void;
+    onSelect: (canvas: HTMLCanvasElement | undefined, spacing?: number,
+        profile?: TProcreateProfile, grain?: HTMLCanvasElement) => void;
 }) {
     const root = document.createElement('div');
     root.style.cssText = 'margin-top:10px;display:flex;flex-direction:column;gap:6px';
@@ -32,10 +34,17 @@ export function createProcreateBrushLibrary(p: {
     row.append(preview, remove);
     const note = document.createElement('small');
     note.textContent = LANG('brush-import-note');
+    const report = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = LANG('brush-import-compatibility');
+    const reportText = document.createElement('small');
+    reportText.style.overflowWrap = 'anywhere';
+    report.append(summary, reportText);
+    report.hidden = true;
     const status = document.createElement('small');
     status.setAttribute('role', 'status');
     status.style.overflowWrap = 'anywhere';
-    root.append(button, input, select, row, note, status);
+    root.append(button, input, select, row, note, report, status);
     let tips: TSavedTip[] = [];
     const savedIds = new Set<string>();
     let selected = '';
@@ -55,6 +64,7 @@ export function createProcreateBrushLibrary(p: {
         revision++;
         selected = select.value = '';
         preview.hidden = true;
+        report.hidden = true;
         remove.disabled = true;
     };
     const activate = async (id: string) => {
@@ -65,21 +75,32 @@ export function createProcreateBrushLibrary(p: {
             p.onSelect(undefined);
             return;
         }
-        const img = new Image();
-        await new Promise<void>((resolve, reject) => {
-            img.onload = () => resolve();
-            img.onerror = () => reject(new Error(LANG('brush-import-failed')));
-            img.src = tip.image;
-        });
+        const loadImage = async (src: string): Promise<HTMLCanvasElement> => {
+            const img = new Image();
+            await new Promise<void>((resolve, reject) => {
+                img.onload = () => resolve();
+                img.onerror = () => reject(new Error(LANG('brush-import-failed')));
+                img.src = src;
+            });
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            canvas.getContext('2d')!.drawImage(img, 0, 0);
+            return canvas;
+        };
+        const canvas = await loadImage(tip.image);
+        const grain = tip.grain ? await loadImage(tip.grain) : undefined;
         if (current !== revision) return;
         if (p.isDrawing()) { select.value = selected; return; }
-        const canvas = document.createElement('canvas');
-        canvas.width = canvas.height = 256;
-        canvas.getContext('2d')!.drawImage(img, 0, 0, 256, 256);
-        p.onSelect(canvas, tip.spacing);
+        p.onSelect(canvas, tip.spacing, tip.profile, grain);
         selected = select.value = id;
         preview.src = tip.image;
         preview.hidden = false;
+        report.hidden = false;
+        reportText.textContent = tip.profile
+            ? `${LANG('brush-import-approximation')} ${tip.unhandled?.length
+                ? `${LANG('brush-import-unhandled')} ${tip.unhandled.join(', ')}` : ''}`
+            : LANG('brush-import-legacy');
         remove.disabled = busy;
     };
     select.onchange = () => {
@@ -105,10 +126,13 @@ export function createProcreateBrushLibrary(p: {
             const added: TSavedTip[] = [];
             for (const tip of result.tips) {
                 try {
-                    const canvas = await decodeTip(tip.png, tip.inverted);
+                    const canvas = await decodeTip(tip.png, tip.inverted, 1024);
+                    const grain = tip.grain ? await decodeTip(tip.grain, tip.profile.grainInverted, 1024, true) : undefined;
                     const id = Array.from(crypto.getRandomValues(new Uint8Array(16)),
                         (value) => value.toString(16).padStart(2, '0')).join('');
-                    added.push({ id, name: tip.name, spacing: tip.spacing, image: canvas.toDataURL() });
+                    added.push({ id, name: tip.name, spacing: tip.spacing, image: canvas.toDataURL(),
+                        grain: grain?.toDataURL(), profile: tip.profile, unhandled: tip.unhandled,
+                        source: { archive: tip.archive, shape: tip.png, grain: tip.grain } });
                 } catch { result.skipped.push(tip.name); }
             }
             tips.push(...added);

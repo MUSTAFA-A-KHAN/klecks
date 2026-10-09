@@ -11,6 +11,8 @@ import { MultiPolygon } from 'polygon-clipping';
 import { getSelectionPath2d } from '../../bb/multi-polygon/get-selection-path-2d';
 import { boundsOverlap, integerBounds } from '../../bb/math/math';
 import { getMultiPolyBounds } from '../../bb/multi-polygon/get-multi-polygon-bounds';
+import { pressureFactor, TProcreateProfile } from './procreate/brush-profile';
+import { ProcreateStamp } from './procreate/procreate-stamp';
 
 const ALPHA_CIRCLE = 0;
 const ALPHA_CHALK = 1;
@@ -35,6 +37,7 @@ export class PenBrush {
     private settingAlphaId: number = ALPHA_CIRCLE;
     private customAlpha: HTMLCanvasElement | undefined;
     private customSpacing: number = 0.2;
+    private procreateStamp: ProcreateStamp | undefined;
     private settingLockLayerAlpha: boolean = false;
 
     private hasDrawnDot: boolean = false;
@@ -120,7 +123,18 @@ export class PenBrush {
     }
 
     private calcOpacity(pressure: number): number {
+        if (this.procreateStamp) {
+            const p = this.procreateStamp.profile;
+            return this.settingOpacity * p.opacity * pressureFactor(pressure, p.pressureOpacity, p.minOpacity);
+        }
         return this.settingOpacity * (this.settingHasOpacityPressure ? pressure * pressure : 1);
+    }
+
+    private calcSize(pressure: number): number {
+        const p = this.procreateStamp?.profile;
+        return Math.max(0.1, this.settingSize * (p
+            ? pressureFactor(pressure, p.pressureSize, p.minSize)
+            : this.settingHasSizePressure ? pressure : 1));
     }
 
     private calcScatter(pressure: number): number {
@@ -172,6 +186,14 @@ export class PenBrush {
             const distance = Math.sqrt(Math.random()) * scatter;
             x += Math.cos(scatterAngleRad) * distance;
             y += Math.sin(scatterAngleRad) * distance;
+        }
+
+        if (this.procreateStamp) {
+            const bounds = this.procreateStamp.draw(this.context, x, y, size, opacity,
+                this.settingColorStr, angle, this.settingLockLayerAlpha);
+            if (bounds) this.updateChangedTiles(bounds);
+            this.hasDrawnDot = true;
+            return;
         }
 
         const boundsSize =
@@ -239,10 +261,7 @@ export class PenBrush {
         }): void => {
             const localPressure = BB.mix(this.lastInput2.pressure, pressure, val.t);
             const localOpacity = this.calcOpacity(localPressure);
-            const localSize = Math.max(
-                0.1,
-                this.settingSize * (this.settingHasSizePressure ? localPressure : 1),
-            );
+            const localSize = this.calcSize(localPressure);
             const localScatter = this.calcScatter(localPressure);
             drawArr.push([val.x, val.y, localSize, localOpacity, localScatter, val.angle]);
         };
@@ -278,11 +297,10 @@ export class PenBrush {
             : undefined;
 
         this.changedTiles = [];
+        this.procreateStamp?.start(x, y);
         p = BB.clamp(p, 0, 1);
         const localOpacity = this.calcOpacity(p);
-        const localSize = this.settingHasSizePressure
-            ? Math.max(0.1, p * this.settingSize)
-            : Math.max(0.1, this.settingSize);
+        const localSize = this.calcSize(p);
         const localScatter = this.calcScatter(p);
 
         this.hasDrawnDot = false;
@@ -314,9 +332,7 @@ export class PenBrush {
         }
 
         const pressure = BB.clamp(p, 0, 1);
-        const localSize = this.settingHasSizePressure
-            ? Math.max(0.1, this.lastInput.pressure * this.settingSize)
-            : Math.max(0.1, this.settingSize);
+        const localSize = this.calcSize(this.lastInput.pressure);
 
         this.context.save();
         this.selectionPath && this.context.clip(this.selectionPath);
@@ -341,9 +357,7 @@ export class PenBrush {
     }
 
     endLine(): void {
-        const localSize = this.settingHasSizePressure
-            ? Math.max(0.1, this.lastInput.pressure * this.settingSize)
-            : Math.max(0.1, this.settingSize);
+        const localSize = this.calcSize(this.lastInput.pressure);
         this.context.save();
         this.selectionPath && this.context.clip(this.selectionPath);
         this.continueLine(null, null, localSize, this.lastInput.pressure);
@@ -398,6 +412,7 @@ export class PenBrush {
         if (this.inputIsDrawing || x1 === undefined) {
             return;
         }
+        this.procreateStamp?.start(x1, y1);
 
         const angle = BB.pointsToAngleDeg({ x: x1, y: y1 }, { x: x2, y: y2 });
         const mouseDist = Math.sqrt(Math.pow(x2 - x1, 2.0) + Math.pow(y2 - y1, 2.0));
@@ -414,7 +429,7 @@ export class PenBrush {
                 x1 + eX * loopDist,
                 y1 + eY * loopDist,
                 this.settingSize,
-                this.settingOpacity,
+                this.calcOpacity(1),
                 localScatter,
                 angle,
             );
@@ -437,8 +452,10 @@ export class PenBrush {
     }
 
     //SET
-    setCustomTip(canvas: HTMLCanvasElement, spacing: number): void {
+    setCustomTip(canvas: HTMLCanvasElement, spacing: number,
+        profile?: TProcreateProfile, grain?: HTMLCanvasElement): void {
         this.customAlpha = canvas;
+        this.procreateStamp = profile ? new ProcreateStamp(canvas, grain, profile) : undefined;
         this.customSpacing = Math.max(0.04, Math.min(4, spacing));
         this.settingAlphaId = 4;
         this.updateAlphaCanvas();
@@ -450,6 +467,7 @@ export class PenBrush {
         }
         this.settingAlphaId = a;
         this.customAlpha = undefined;
+        this.procreateStamp = undefined;
         this.updateAlphaCanvas();
     }
 

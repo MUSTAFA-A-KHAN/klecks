@@ -5,8 +5,6 @@ export class ProcreateStamp {
     private readonly stamp = document.createElement('canvas');
     private readonly grainMask: HTMLCanvasElement | undefined;
     private startAngle = 0;
-    private startX = 0;
-    private startY = 0;
     private lastX = 0;
     private lastY = 0;
     private travel = 0;
@@ -35,8 +33,8 @@ export class ProcreateStamp {
     }
 
     start(x: number, y: number): void {
-        this.startX = this.lastX = x;
-        this.startY = this.lastY = y;
+        this.lastX = x;
+        this.lastY = y;
         this.travel = 0;
         this.startAngle = this.profile.randomStart ? this.random() * Math.PI * 2 : 0;
     }
@@ -75,8 +73,8 @@ export class ProcreateStamp {
                 const grainSize = p.grainScale * (radius * 2 * (1 - p.grainZoom) + 256 * p.grainZoom);
                 const scale = grainSize / this.grainMask.width;
                 pattern.setTransform(new DOMMatrix()
-                    .translate(side / 2 - (cx - this.startX) * p.grainMovement,
-                        side / 2 - (cy - this.startY) * p.grainMovement)
+                    .translate(side / 2 - cx * p.grainMovement,
+                        side / 2 - cy * p.grainMovement)
                     .rotate(angle * p.grainRotation).scale(scale));
                 stampCtx.globalCompositeOperation = 'destination-in';
                 stampCtx.imageSmoothingEnabled = p.grainFilter;

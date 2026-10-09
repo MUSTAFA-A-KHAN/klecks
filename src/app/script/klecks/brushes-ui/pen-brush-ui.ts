@@ -61,6 +61,7 @@ export const penBrushUi = (function () {
         let sizeSlider: KlSlider;
         let opacitySlider: KlSlider;
         let scatterSlider: KlSlider;
+        const pressureControls: HTMLElement[] = [];
 
         const alphaOptions = new Options({
             optionArr: [0, 1, 2, 3].map((id) => {
@@ -101,15 +102,17 @@ export const penBrushUi = (function () {
             onChange: (id) => {
                 brush.setAlpha(id);
                 importedBrushes.clearSelection();
+                pressureControls.forEach((el) => el.hidden = false);
             },
             onBeforeChange: () => !brush.isDrawing(),
         });
 
         const importedBrushes = createProcreateBrushLibrary({
             isDrawing: () => brush.isDrawing(),
-            onSelect: (canvas, spacing) => {
+            onSelect: (canvas, spacing, profile, grain) => {
+                pressureControls.forEach((el) => el.hidden = !!profile);
                 if (canvas) {
-                    brush.setCustomTip(canvas, spacing!);
+                    brush.setCustomTip(canvas, spacing!, profile, grain);
                     alphaOptions.setValue(-1, true);
                 } else {
                     brush.setAlpha(0);
@@ -216,6 +219,7 @@ export const penBrushUi = (function () {
             const pressureOpacityToggle = createPenPressureToggle(false, function (b) {
                 brush.opacityPressure(b);
             });
+            pressureControls.push(pressureSizeToggle, pressureOpacityToggle);
             const pressureScatterToggle = createPenPressureToggle(false, function (b) {
                 brush.scatterPressure(b);
             });
