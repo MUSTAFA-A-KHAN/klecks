@@ -10,6 +10,7 @@ import { TBrushUi } from '../kl-types';
 import { LANG, LANGUAGE_STRINGS } from '../../language/language';
 import { Options } from '../ui/components/options';
 import { PenBrush } from '../brushes/pen-brush';
+import { createProcreateBrushLibrary } from './procreate-brush-library';
 
 export const penBrushUi = (function () {
     const brushInterface = {
@@ -99,6 +100,21 @@ export const penBrushUi = (function () {
             initId: 0,
             onChange: (id) => {
                 brush.setAlpha(id);
+                importedBrushes.clearSelection();
+            },
+            onBeforeChange: () => !brush.isDrawing(),
+        });
+
+        const importedBrushes = createProcreateBrushLibrary({
+            isDrawing: () => brush.isDrawing(),
+            onSelect: (canvas, spacing) => {
+                if (canvas) {
+                    brush.setCustomTip(canvas, spacing!);
+                    alphaOptions.setValue(-1, true);
+                } else {
+                    brush.setAlpha(0);
+                    alphaOptions.setValue(0, true);
+                }
             },
         });
 
@@ -243,6 +259,7 @@ export const penBrushUi = (function () {
                         marginTop: '10px',
                     },
                 }),
+                importedBrushes.element,
             );
         }
 

@@ -13,6 +13,17 @@ Renaming a key across multiple language files:
 -> translations are updated. You need to manually remove "oldKey".
 */
 {
+  "brush-import-procreate": "Import Procreate brushes",
+  "brush-import-library": "Imported brush tips",
+  "brush-import-built-in": "Built-in brush tips",
+  "brush-import-remove": "Remove imported brush",
+  "brush-import-note": "Imports embedded tips and spacing only. Grain, mixing, tilt and other Procreate effects are not supported. Brushes are saved in this browser.",
+  "brush-import-loading": "Importing brushes…",
+  "brush-import-count": "Imported:",
+  "brush-import-skipped": "Skipped (missing embedded shape or unsupported data):",
+  "brush-import-failed": "Could not import this brush file.",
+  "brush-import-unsaved": "Browser storage is unavailable. New brushes are available only for this session.",
+  "brush-import-storage-error": "Could not remove the saved brush. Please try again.",
   "switch-ui-left-right": {
     hint: "Button that switches layout from left to right, to accommodate left handed & right handed visitors.",
     value: "Switch left/right UI"

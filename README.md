@@ -35,6 +35,30 @@ Created by developer/artist [bitbof](https://bitbof.com)
 - `npm run build:embed` - build of embed into `/dist/`
 - `npm run build:help` - build help page (when clicking the question mark) into `/dist/`
 
+# Procreate brush import
+
+In the **Pen** brush panel, choose **Import Procreate brushes** and open a `.brush`
+or `.brushset` file. Select an imported tip from the dropdown; choose a built-in
+tip to switch back. Imported tips are stored locally in this browser (IndexedDB)
+and can be removed from the same panel. Files are not uploaded.
+
+This imports embedded `Shape.png` tips, names, shape inversion, and stroke spacing
+from binary `Brush.archive` metadata, including brush sets with nested `.brush`
+files. It uses Klecks' size, opacity, pressure, and scatter controls. It is not a
+complete implementation of Procreate's brush engine: grain, wet mixing, dual
+brushes, tilt, taper, color dynamics, and Procreate pressure curves are not imported.
+Brushes that reference Procreate's bundled shapes without embedding them are
+skipped and reported, as are unsupported or damaged brush records. No substitute
+shape is silently assigned. Tips are normalized to 256 pixels, preserving aspect
+ratio. Limits: 50 MB per file, 100 MB expanded assets, 4096 pixels per source image
+dimension, and 100 tips in the library. Clearing browser site data removes them.
+
+Import checks: `npm run test:brushes`. Browser checks: run `npm run lang:build`,
+`npm run build`, `npx playwright install chromium`, then
+`npm run test:brushes:browser`. Set `PLAYWRIGHT_CHANNEL=msedge` or `chrome` to use
+an installed browser instead. Test fixtures are original synthetic brushes,
+regenerable with `python tests/create-brush-fixtures.py`.
+
 # Embed
 Example usage of the embed can be found under: `/examples/embed/`
 

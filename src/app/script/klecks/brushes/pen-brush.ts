@@ -33,6 +33,8 @@ export class PenBrush {
     private settingColor: TRgb = {} as TRgb;
     private settingColorStr: string = '';
     private settingAlphaId: number = ALPHA_CIRCLE;
+    private customAlpha: HTMLCanvasElement | undefined;
+    private customSpacing: number = 0.2;
     private settingLockLayerAlpha: boolean = false;
 
     private hasDrawnDot: boolean = false;
@@ -44,6 +46,7 @@ export class PenBrush {
     private bezierLine: BezierLine | null = null;
 
     // mipmapping
+    private readonly alphaCanvas256: HTMLCanvasElement = BB.canvas(256, 256);
     private readonly alphaCanvas128: HTMLCanvasElement = BB.canvas(128, 128);
     private readonly alphaCanvas64: HTMLCanvasElement = BB.canvas(64, 64);
     private readonly alphaCanvas32: HTMLCanvasElement = BB.canvas(32, 32);
@@ -76,6 +79,7 @@ export class PenBrush {
         }
 
         const instructionArr: [HTMLCanvasElement, number][] = [
+            [this.alphaCanvas256, 256],
             [this.alphaCanvas128, 128],
             [this.alphaCanvas64, 64],
             [this.alphaCanvas32, 32],
@@ -97,14 +101,14 @@ export class PenBrush {
                 ', ' +
                 this.settingColor.b +
                 ', ' +
-                this.alphaOpacityArr[this.settingAlphaId] +
+                (this.customAlpha ? 1 : this.alphaOpacityArr[this.settingAlphaId]) +
                 ')';
             ctx.fillRect(0, 0, instructionArr[i][1], instructionArr[i][1]);
 
             ctx.globalCompositeOperation = 'destination-in';
             ctx.imageSmoothingQuality = 'high';
             ctx.drawImage(
-                ALPHA_IM_ARR[this.settingAlphaId],
+                this.customAlpha || ALPHA_IM_ARR[this.settingAlphaId],
                 0,
                 0,
                 instructionArr[i][1],
@@ -200,7 +204,7 @@ export class PenBrush {
             // other brush alphas
             this.context.save();
             this.context.translate(x, y);
-            let targetMipmap = this.alphaCanvas128;
+            let targetMipmap = this.customAlpha && size > 64 ? this.alphaCanvas256 : this.alphaCanvas128;
             if (size <= 32 && size > 16) {
                 targetMipmap = this.alphaCanvas64;
             } else if (size <= 16) {
@@ -243,7 +247,7 @@ export class PenBrush {
             drawArr.push([val.x, val.y, localSize, localOpacity, localScatter, val.angle]);
         };
 
-        const localSpacing = size * this.settingSpacing;
+        const localSpacing = size * this.getSpacing();
         if (x === null || y === null) {
             this.bezierLine.addFinal(localSpacing, dotCallback);
         } else {
@@ -289,7 +293,7 @@ export class PenBrush {
         this.drawDot(x, y, localSize, localOpacity, localScatter);
         this.context.restore();
 
-        this.lineToolLastDot = localSize * this.settingSpacing;
+        this.lineToolLastDot = localSize * this.getSpacing();
         this.lastInput.x = x;
         this.lastInput.y = y;
         this.lastInput.pressure = p;
@@ -400,8 +404,8 @@ export class PenBrush {
         const eX = (x2 - x1) / mouseDist;
         const eY = (y2 - y1) / mouseDist;
         let loopDist;
-        const bdist = this.settingSize * this.settingSpacing;
-        this.lineToolLastDot = this.settingSize * this.settingSpacing;
+        const bdist = this.settingSize * this.getSpacing();
+        this.lineToolLastDot = this.settingSize * this.getSpacing();
         this.context.save();
         this.selectionPath && this.context.clip(this.selectionPath);
         const localScatter = this.calcScatter(1);
@@ -433,11 +437,19 @@ export class PenBrush {
     }
 
     //SET
+    setCustomTip(canvas: HTMLCanvasElement, spacing: number): void {
+        this.customAlpha = canvas;
+        this.customSpacing = Math.max(0.04, Math.min(4, spacing));
+        this.settingAlphaId = 4;
+        this.updateAlphaCanvas();
+    }
+
     setAlpha(a: number): void {
         if (this.settingAlphaId === a) {
             return;
         }
         this.settingAlphaId = a;
+        this.customAlpha = undefined;
         this.updateAlphaCanvas();
     }
 
@@ -499,7 +511,7 @@ export class PenBrush {
 
     //GET
     getSpacing(): number {
-        return this.settingSpacing;
+        return this.customAlpha ? this.customSpacing : this.settingSpacing;
     }
 
     getSize(): number {

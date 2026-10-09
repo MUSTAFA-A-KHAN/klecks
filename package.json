@@ -10,6 +10,8 @@
     "ios_saf 9"
   ],
   "scripts": {
+    "test:brushes": "node --import tsx --test tests/procreate.test.ts",
+    "test:brushes:browser": "playwright test",
     "start": "parcel serve src/index.html --no-cache",
     "build": "parcel build src/index.html --public-url /klecks/",
     "build:embed": "parcel build src/embed.ts",
@@ -21,7 +23,9 @@
   },
   "devDependencies": {
     "@parcel/optimizer-image": "2.16.1",
-    "gh-pages": "^6.0.0"
+    "@playwright/test": "^1.64.0",
+    "gh-pages": "^6.0.0",
+    "tsx": "^4.23.15"
   },
   "dependencies": {
     "@parcel/transformer-glsl": "2.16.1",
@@ -29,6 +33,7 @@
     "@tldraw/tldraw": "^4.2.0",
     "ag-psd": "28.3.1",
     "buffer": "6.0.3",
+    "fflate": "0.8.3",
     "js-beautify": "1.15.4",
     "json5": "2.2.3",
     "mdn-polyfills": "5.20.0",
