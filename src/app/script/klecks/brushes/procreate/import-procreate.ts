@@ -1,21 +1,35 @@
 import { unzipSync } from 'fflate';
-import { readBinaryPlist } from './binary-plist';
+import { readPlist } from './read-plist';
+import { readProfile, TProcreateProfile } from './brush-profile';
 
-export type TImportedTip = { name: string; png: Uint8Array; spacing: number; inverted: boolean };
+export type TImportedTip = {
+    name: string; png: Uint8Array; grain?: Uint8Array; spacing: number; inverted: boolean;
+    profile: TProcreateProfile; unhandled: string[]; archive: Uint8Array;
+};
 export type TImportResult = { tips: TImportedTip[]; skipped: string[] };
 const MAX_FILE = 50 * 1024 * 1024;
 const MAX_EXPANDED = 100 * 1024 * 1024;
 export const MAX_BRUSHES = 100;
 
 /** Read only the root settings, without recursively expanding keyed-archive references. */
-function settings(bytes: Uint8Array): { name?: string; spacing: number; inverted: boolean } {
-    const plist = readBinaryPlist(bytes);
+function settings(bytes: Uint8Array) {
+    const plist = readPlist(bytes);
     const objects = plist.$objects;
     const root = plist.$top?.root?.['CF$UID'];
     if (!Array.isArray(objects) || !Number.isInteger(root)) throw new Error('Invalid brush metadata');
     const brush = objects[root];
     if (!brush || typeof brush !== 'object') throw new Error('Invalid brush metadata');
-    const name = typeof brush.name === 'string' ? brush.name : objects[brush.name?.['CF$UID']];
+    const resolve = (value: any, depth = 0): any => {
+        if (depth > 10) throw new Error('Invalid metadata reference');
+        if (value && typeof value === 'object' && 'CF$UID' in value) {
+            const id = value['CF$UID'];
+            if (!Number.isInteger(id) || id < 0 || id >= objects.length) throw new Error('Invalid metadata reference');
+            return id === 0 ? null : resolve(objects[id], depth + 1);
+        }
+        return value;
+    };
+    const raw = Object.fromEntries(Object.entries(brush).map(([key, value]) => [key, resolve(value)]));
+    const name = raw.name;
     const spacing = brush.plotSpacing;
     return {
         name: typeof name === 'string' ? name.slice(0, 200) : undefined,
@@ -23,6 +37,8 @@ function settings(bytes: Uint8Array): { name?: string; spacing: number; inverted
         spacing: typeof spacing === 'number' && Number.isFinite(spacing)
             ? Math.max(0.02, Math.min(2, spacing)) * 2 : 0.2,
         inverted: brush.shapeInverted === true,
+        ...readProfile(raw),
+        bundledGrain: typeof raw.bundledGrainPath === 'string' ? raw.bundledGrainPath : undefined,
     };
 }
 
@@ -38,7 +54,7 @@ export function extractProcreate(bytes: Uint8Array, filename: string): TImportRe
             filter: (entry) => {
                 if (++entries > 10000) throw new Error('Too many files in brush archive.');
                 if (/(^|\/)(__MACOSX|Reset|QuickLook)(\/|$)/i.test(entry.name)) return false;
-                if (!/(^|\/)(Shape\.png|Brush\.archive)$/i.test(entry.name) &&
+                if (!/(^|\/)(Shape\.png|Grain\.png|Brush\.archive)$/i.test(entry.name) &&
                     (nested || !/\.brush$/i.test(entry.name))) return false;
                 expanded += entry.originalSize;
                 if (entry.originalSize > MAX_FILE || expanded > MAX_EXPANDED) {
@@ -56,6 +72,7 @@ export function extractProcreate(bytes: Uint8Array, filename: string): TImportRe
             }
             const archive = paths.find((path) => path.toLowerCase() === (folder + 'Brush.archive').toLowerCase());
             const shape = paths.find((path) => path.toLowerCase() === (folder + 'Shape.png').toLowerCase());
+            const grain = paths.find((path) => path.toLowerCase() === (folder + 'Grain.png').toLowerCase());
             const fallback = folder.replace(/\/$/, '').split('/').pop() || label.replace(/\.(brush|brushset)$/i, '');
             try {
                 if (!archive) throw new Error('Missing metadata');
@@ -64,7 +81,9 @@ export function extractProcreate(bytes: Uint8Array, filename: string): TImportRe
                     result.skipped.push(meta.name || fallback);
                     continue;
                 }
-                result.tips.push({ ...meta, name: meta.name || fallback, png: files[shape] });
+                if (!grain && meta.bundledGrain) meta.unhandled.push(`Missing grain: ${meta.bundledGrain}`);
+                result.tips.push({ ...meta, name: meta.name || fallback, png: files[shape],
+                    grain: grain ? files[grain] : undefined, archive: files[archive] });
             } catch {
                 result.skipped.push(fallback);
             }
@@ -87,7 +106,8 @@ export function extractProcreate(bytes: Uint8Array, filename: string): TImportRe
 }
 
 /** White in Procreate's shape image represents paint coverage, not white paint. */
-export async function decodeTip(png: Uint8Array, inverted: boolean): Promise<HTMLCanvasElement> {
+export async function decodeTip(png: Uint8Array, inverted: boolean,
+    resolution = 256, isGrain = false): Promise<HTMLCanvasElement> {
     const signature = [137, 80, 78, 71, 13, 10, 26, 10];
     if (png.length < 24 || signature.some((byte, i) => png[i] !== byte)) throw new Error('Invalid shape image');
     const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
@@ -103,13 +123,14 @@ export async function decodeTip(png: Uint8Array, inverted: boolean): Promise<HTM
             img.src = url;
         });
         const canvas = document.createElement('canvas');
-        canvas.width = canvas.height = 256;
-        const ctx = canvas.getContext('2d')!;
-        const scale = 256 / Math.max(width, height);
+        const scale = resolution / Math.max(width, height);
         const w = Math.max(1, Math.round(width * scale));
         const h = Math.max(1, Math.round(height * scale));
-        ctx.drawImage(img, (256 - w) / 2, (256 - h) / 2, w, h);
-        const pixels = ctx.getImageData(0, 0, 256, 256);
+        canvas.width = isGrain ? w : resolution;
+        canvas.height = isGrain ? h : resolution;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
         for (let i = 0; i < pixels.data.length; i += 4) {
             const luminance = (pixels.data[i] + pixels.data[i + 1] + pixels.data[i + 2]) / 3;
             pixels.data[i + 3] *= (inverted ? 255 - luminance : luminance) / 255;
