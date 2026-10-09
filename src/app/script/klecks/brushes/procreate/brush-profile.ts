@@ -76,7 +76,7 @@ export function readProfile(raw: Record<string, unknown>): {
         rotation: n('shapeRotation', oriented ? 1 : 0, -1),
         scatter: n('shapeScatter', 0, 0, 2),
         randomStart: b('shapeRandomise'),
-        count: Math.max(1, Math.round(count <= 1 ? count * 16 : count)),
+        count: Math.max(1, Math.round(count < 1 ? count * 16 : count)),
         countJitter: n('shapeCountJitter', 0),
         flipX: b('shapeFlipX'),
         flipY: b('shapeFlipY'),

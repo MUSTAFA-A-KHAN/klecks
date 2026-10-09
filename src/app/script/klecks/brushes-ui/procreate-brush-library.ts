@@ -1,5 +1,5 @@
 import { LANG } from '../../language/language';
-import { decodeTip, extractProcreate, MAX_BRUSHES } from '../brushes/procreate/import-procreate';
+import { decodeTip, extractProcreate, MAX_BRUSHES, settings } from '../brushes/procreate/import-procreate';
 import { loadTips, saveTips, TSavedTip } from '../brushes/procreate/tip-storage';
 import { TProcreateProfile } from '../brushes/procreate/brush-profile';
 
@@ -168,6 +168,15 @@ export function createProcreateBrushLibrary(p: {
     refresh();
     setBusy(true);
     void loadTips().then((saved) => {
+        // Profiles are stored at import time; re-read them so importer fixes reach old brushes.
+        saved.forEach((tip) => {
+            if (!tip.source?.archive || !tip.profile) return;
+            try {
+                const { profile, unhandled } = settings(tip.source.archive);
+                tip.profile = profile;
+                tip.unhandled = unhandled;
+            } catch { /* keep the stored profile */ }
+        });
         tips = saved;
         saved.forEach((tip) => savedIds.add(tip.id));
         refresh();

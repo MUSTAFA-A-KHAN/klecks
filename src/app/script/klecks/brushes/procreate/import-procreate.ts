@@ -13,7 +13,7 @@ const MAX_EXPANDED = 100 * 1024 * 1024;
 export const MAX_BRUSHES = 100;
 
 /** Read only the root settings, without recursively expanding keyed-archive references. */
-function settings(bytes: Uint8Array) {
+export function settings(bytes: Uint8Array) {
     const plist = readPlist(bytes);
     const objects = plist.$objects;
     const root = plist.$top?.root?.['CF$UID'];
