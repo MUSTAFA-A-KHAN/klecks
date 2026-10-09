@@ -1,5 +1,11 @@
 import { TProcreateProfile } from './brush-profile';
 
+/**
+ * Dabs up to this size are batched for max transfer. Each readback has a fixed cost, but also
+ * one that grows with the canvas size, so larger dabs are faster read back one at a time.
+ */
+const BATCH_MAX_SIDE = 128;
+
 /** Canvas implementation of documented brush concepts. Numerical response is approximate. */
 export class ProcreateStamp {
     // Reused across dabs: resizing a canvas reallocates it, which is far too slow per dab.
@@ -14,7 +20,17 @@ export class ProcreateStamp {
     private readonly tiles = new Map<string, {
         original: HTMLCanvasElement; coverage: HTMLCanvasElement; pixels: ImageData;
     }>();
-    /** Tile regions changed since the last flush, so the layer is written once per draw call. */
+    /**
+     * Max transfer packs a batch of dabs side by side in the stamp canvas and reads them back with
+     * a single getImageData in commit(): each readback has a high fixed cost, so one per dab stalls.
+     */
+    private readonly pending: { ax: number; ay: number; side: number;
+        left: number; top: number; alpha: number }[] = [];
+    private atlasX = 0;
+    private atlasY = 0;
+    private shelfHeight = 0;
+    private atlasWidthUsed = 0;
+    /** Tile regions changed since the last flush, so the layer is written once per commit. */
     private readonly dirty = new Map<string, { x1: number; y1: number; x2: number; y2: number }>();
 
     constructor(
@@ -34,7 +50,8 @@ export class ProcreateStamp {
             for (let i = 3; i < pixels.data.length; i += 4) {
                 const level = Math.max(0, Math.min(1,
                     (pixels.data[i] / 255 - 0.5) * contrast + 0.5 + profile.grainBrightness));
-                pixels.data[i] = 255 * (1 - profile.grainDepth * (1 - level));
+                // Stored inverted: destination-out only touches the filled area, unlike destination-in.
+                pixels.data[i] = 255 * profile.grainDepth * (1 - level);
             }
             ctx.putImageData(pixels, 0, 0);
         }
@@ -56,13 +73,12 @@ export class ProcreateStamp {
 
     /** Maximum per-stroke coverage. Tiles avoid cloning a potentially very large layer. */
     private transfer(ctx: CanvasRenderingContext2D, left: number, top: number, side: number,
-        alpha: number): void {
+        alpha: number, atlas: ImageData, ax: number, ay: number): void {
         const tileSize = 128;
         const x0 = Math.floor(left);
         const y0 = Math.floor(top);
         const right = Math.min(ctx.canvas.width, x0 + side);
         const bottom = Math.min(ctx.canvas.height, y0 + side);
-        const dab = this.stampCtx.getImageData(0, 0, side, side);
         for (let ty = Math.max(0, Math.floor(y0 / tileSize) * tileSize); ty < bottom; ty += tileSize) {
             for (let tx = Math.max(0, Math.floor(x0 / tileSize) * tileSize); tx < right; tx += tileSize) {
                 const key = `${tx},${ty}`;
@@ -82,12 +98,12 @@ export class ProcreateStamp {
                 const sy = Math.max(y0, ty);
                 const ex = Math.min(right, tx + tileSize);
                 const ey = Math.min(bottom, ty + tileSize);
-                const from = dab.data;
+                const from = atlas.data;
                 const to = tile.pixels.data;
                 const tileWidth = tile.coverage.width;
                 for (let y = sy; y < ey; y++) {
                     for (let x = sx; x < ex; x++) {
-                        const src = ((y - y0) * side + x - x0) * 4;
+                        const src = ((ay + y - y0) * atlas.width + ax + x - x0) * 4;
                         const dst = ((y - ty) * tileWidth + x - tx) * 4;
                         const opacity = Math.round(from[src + 3] * alpha);
                         if (opacity <= to[dst + 3]) continue;
@@ -126,9 +142,52 @@ export class ProcreateStamp {
         this.dirty.clear();
     }
 
+    /** Reserve a side×side region of the stamp canvas for the next dab in the batch. */
+    private allocate(ctx: CanvasRenderingContext2D, side: number, lockAlpha: boolean): [number, number] {
+        if (this.atlasX + side > this.stamp.width) {
+            this.atlasX = 0;
+            this.atlasY += this.shelfHeight;
+            this.shelfHeight = 0;
+        }
+        if (this.atlasY + side > this.stamp.height) this.commit(ctx, lockAlpha);
+        if (!this.pending.length && this.atlasY === 0 && this.atlasX === 0) {
+            // Size the canvas to the batch: Chrome's readback cost grows with the whole canvas.
+            // Resizing clears it, which is safe only while the batch is empty.
+            if (side > BATCH_MAX_SIDE) {
+                if (this.stamp.width < side || this.stamp.width > side * 2) {
+                    this.stamp.width = this.stamp.height = side;
+                }
+            } else {
+                const dim = 2 ** Math.ceil(Math.log2(side * 4));
+                if (this.stamp.width !== dim) this.stamp.width = this.stamp.height = dim;
+            }
+        }
+        const slot: [number, number] = [this.atlasX, this.atlasY];
+        this.atlasX += side;
+        this.shelfHeight = Math.max(this.shelfHeight, side);
+        this.atlasWidthUsed = Math.max(this.atlasWidthUsed, this.atlasX);
+        return slot;
+    }
+
+    /** Apply batched max-transfer dabs to the layer. Call within the same clip as draw(). */
+    commit(ctx: CanvasRenderingContext2D, lockAlpha: boolean): void {
+        if (this.pending.length) {
+            const atlas = this.stampCtx.getImageData(0, 0, this.atlasWidthUsed,
+                this.atlasY + this.shelfHeight);
+            for (const dab of this.pending) {
+                this.transfer(ctx, dab.left, dab.top, dab.side, dab.alpha, atlas, dab.ax, dab.ay);
+            }
+            this.pending.length = 0;
+        }
+        this.atlasX = this.atlasY = this.shelfHeight = this.atlasWidthUsed = 0;
+        if (this.dirty.size) this.flush(ctx, lockAlpha);
+    }
+
     end(): void {
         this.tiles.clear();
         this.dirty.clear();
+        this.pending.length = 0;
+        this.atlasX = this.atlasY = this.shelfHeight = this.atlasWidthUsed = 0;
     }
 
     draw(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number,
@@ -148,44 +207,51 @@ export class ProcreateStamp {
             const rotation = p.angle + this.startAngle + angle * Math.PI / 180 * p.rotation +
                 (this.random() * 2 - 1) * Math.PI * p.scatter;
             const side = Math.max(2, Math.ceil(size * 2 * Math.SQRT2) + 2);
-            if (this.stamp.width < side) {
+            let ox = 0;
+            let oy = 0;
+            if (p.maxTransfer) {
+                [ox, oy] = this.allocate(ctx, side, lockAlpha);
+            } else if (this.stamp.width < side) {
                 this.stamp.width = this.stamp.height = Math.max(side, this.stamp.width * 2);
             }
             const stampCtx = this.stampCtx;
-            stampCtx.globalCompositeOperation = 'source-over';
-            stampCtx.clearRect(0, 0, side, side);
             stampCtx.save();
-            stampCtx.translate(side / 2, side / 2);
+            // Only bounded operations below, so other dabs in the batch stay untouched.
+            stampCtx.globalCompositeOperation = 'source-over';
+            stampCtx.clearRect(ox, oy, side, side);
+            stampCtx.save();
+            stampCtx.translate(ox + side / 2, oy + side / 2);
             stampCtx.rotate(rotation);
             const flipX = p.flipX !== (p.flipXJitter && this.random() < 0.5);
             const flipY = p.flipY !== (p.flipYJitter && this.random() < 0.5);
             stampCtx.scale(flipX ? -1 : 1, (flipY ? -1 : 1) * p.roundness);
             stampCtx.drawImage(this.shape, -size, -size, size * 2, size * 2);
             stampCtx.restore();
-            stampCtx.globalCompositeOperation = 'source-in';
+            stampCtx.globalCompositeOperation = 'source-atop';
             stampCtx.fillStyle = color;
-            stampCtx.fillRect(0, 0, side, side);
+            stampCtx.fillRect(ox, oy, side, side);
             if (this.grainMask && this.grainPattern) {
                 const pattern = this.grainPattern;
                 // Movement=1 anchors the grain in canvas space; 0 drags it with the tip.
                 const grainSize = p.grainScale * (radius * 2 * (1 - p.grainZoom) + 256 * p.grainZoom);
                 const scale = grainSize / this.grainMask.width;
                 pattern.setTransform(new DOMMatrix()
-                    .translate(side / 2 - cx * p.grainMovement,
-                        side / 2 - cy * p.grainMovement)
+                    .translate(ox + side / 2 - cx * p.grainMovement,
+                        oy + side / 2 - cy * p.grainMovement)
                     .rotate(angle * p.grainRotation).scale(scale));
-                stampCtx.globalCompositeOperation = 'destination-in';
+                stampCtx.globalCompositeOperation = 'destination-out';
                 stampCtx.imageSmoothingEnabled = p.grainFilter;
                 stampCtx.fillStyle = pattern;
-                stampCtx.fillRect(0, 0, side, side);
-                stampCtx.imageSmoothingEnabled = true;
+                stampCtx.fillRect(ox, oy, side, side);
             }
+            stampCtx.restore();
             const alpha = opacity * p.flow * (1 - p.opacityJitter * this.random()) *
                 Math.exp(-p.falloff * this.travel / Math.max(1, radius * 2));
             if (alpha <= 0) continue;
             if (p.maxTransfer) {
-                this.transfer(ctx, cx - side / 2, cy - side / 2, side,
-                    Math.max(0, Math.min(1, alpha)));
+                this.pending.push({ ax: ox, ay: oy, side, left: cx - side / 2, top: cy - side / 2,
+                    alpha: Math.max(0, Math.min(1, alpha)) });
+                if (side > BATCH_MAX_SIDE) this.commit(ctx, lockAlpha);
             } else {
                 ctx.save();
                 ctx.globalCompositeOperation = lockAlpha ? 'source-atop' : 'source-over';
@@ -198,7 +264,6 @@ export class ProcreateStamp {
             bounds.x2 = Math.max(bounds.x2, Math.ceil(cx + side / 2));
             bounds.y2 = Math.max(bounds.y2, Math.ceil(cy + side / 2));
         }
-        if (this.dirty.size) this.flush(ctx, lockAlpha);
         return Number.isFinite(bounds.x1) ? bounds : undefined;
     }
 }

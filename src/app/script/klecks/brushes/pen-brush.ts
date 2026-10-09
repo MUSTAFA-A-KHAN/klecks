@@ -282,6 +282,7 @@ export class PenBrush {
             this.drawDot(item[0], item[1], item[2], item[3], item[4], item[5], before);
             before = item;
         }
+        this.procreateStamp?.commit(this.context, this.settingLockLayerAlpha);
         this.context.restore();
     }
 
@@ -310,6 +311,7 @@ export class PenBrush {
         this.context.save();
         this.selectionPath && this.context.clip(this.selectionPath);
         this.drawDot(x, y, localSize, localOpacity, localScatter);
+        this.procreateStamp?.commit(this.context, this.settingLockLayerAlpha);
         this.context.restore();
 
         this.lineToolLastDot = localSize * this.getSpacing();
@@ -436,6 +438,7 @@ export class PenBrush {
                 angle,
             );
         }
+        this.procreateStamp?.commit(this.context, this.settingLockLayerAlpha);
         this.procreateStamp?.end();
         this.context.restore();
 
