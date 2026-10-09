@@ -1,5 +1,9 @@
 export const IS_FIREFOX = navigator.userAgent.toLowerCase().indexOf('firefox') > -1;
 
+/** Safari, and every browser on iOS/iPadOS (they all use WebKit). Chrome and Edge also say AppleWebKit. */
+export const IS_WEBKIT = /AppleWebKit/.test(navigator.userAgent) &&
+    !/Chrome\/|Chromium\/|Edg\//.test(navigator.userAgent);
+
 export const EVENT_USES_HIGH_RES_TIMESTAMP = (function (): () => boolean {
     const eventUsesHighResTimeStamp: boolean = new Event('').timeStamp < 1000 * 60 * 60;
     return function (): boolean {
