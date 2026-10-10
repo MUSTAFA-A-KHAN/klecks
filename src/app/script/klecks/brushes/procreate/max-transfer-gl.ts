@@ -1,4 +1,4 @@
-const VERTEX = `
+const DAB_VERTEX = `
 attribute vec2 corner;
 uniform vec2 center;
 uniform float halfSide;
@@ -9,7 +9,8 @@ void main() {
     gl_Position = vec4(pos.x / resolution.x * 2.0 - 1.0, 1.0 - pos.y / resolution.y * 2.0, 0.0, 1.0);
 }`;
 
-const FRAGMENT = `
+/** Writes the dab's coverage; the color mask picks the channel (A: coverage, R: applied). */
+const DAB_FRAGMENT = `
 precision highp float;
 uniform sampler2D shape;
 uniform sampler2D grain;
@@ -22,7 +23,6 @@ uniform vec2 grainOrigin;
 uniform vec2 grainRowX;
 uniform vec2 grainRowY;
 uniform vec2 grainSize;
-uniform vec3 color;
 uniform float alpha;
 varying vec2 pos;
 void main() {
@@ -35,6 +35,31 @@ void main() {
         // The grain is stored inverted (see ProcreateStamp).
         a *= 1.0 - texture2D(grain, vec2(dot(grainRowX, g), dot(grainRowY, g)) / grainSize).a;
     }
+    gl_FragColor = vec4(a, 0.0, 0.0, a);
+}`;
+
+const OUTPUT_VERTEX = `
+attribute vec2 corner;
+void main() {
+    gl_Position = vec4(corner, 0.0, 1.0);
+}`;
+
+/**
+ * The layer already shows the stroke at the applied coverage (R). Drawing the color source-over
+ * with opacity (target - applied) / (1 - applied) brings it to the target coverage (A), exactly
+ * as if the layer had been restored and redrawn at the target.
+ */
+const OUTPUT_FRAGMENT = `
+precision highp float;
+uniform sampler2D coverage;
+uniform vec2 origin;
+uniform float outputHeight;
+uniform vec2 resolution;
+uniform vec3 color;
+void main() {
+    vec2 pos = origin + vec2(gl_FragCoord.x, outputHeight - gl_FragCoord.y);
+    vec4 c = texture2D(coverage, vec2(pos.x / resolution.x, 1.0 - pos.y / resolution.y));
+    float a = c.a > c.r ? (c.a - c.r) / (1.0 - c.r) : 0.0;
     gl_FragColor = vec4(color * a, a);
 }`;
 
@@ -46,18 +71,28 @@ export type TGlDab = {
 };
 
 /**
- * Max transfer on the GPU. Dabs blend with MAX into a layer-sized buffer, so per-pixel coverage
- * is capped within a stroke without reading pixels back, which stalls badly in Safari.
+ * Max transfer on the GPU, so nothing is read back per dab, which stalls badly in Safari.
+ * Dabs blend with MAX into a layer-sized coverage texture. commit() then renders only the change
+ * since the last commit into a small canvas, for the caller to draw over the layer.
  */
 export class MaxTransferGl {
+    /** Output of commit(): the region's change sits in its top-left corner. */
     readonly canvas: HTMLCanvasElement;
     private readonly gl: WebGLRenderingContext;
-    private readonly program: WebGLProgram;
-    private readonly uniforms: Record<string, WebGLUniformLocation | null> = {};
+    private readonly dabProgram: WebGLProgram;
+    private readonly outputProgram: WebGLProgram;
+    private readonly dabUniforms: Record<string, WebGLUniformLocation | null> = {};
+    private readonly outputUniforms: Record<string, WebGLUniformLocation | null> = {};
+    private readonly coverage: WebGLTexture;
+    private readonly framebuffer: WebGLFramebuffer;
     private readonly maxSize: number;
     private readonly grainWidth: number = 1;
     private readonly grainHeight: number = 1;
     private readonly hasGrain: boolean;
+    private width = 0;
+    private height = 0;
+    /** Dabs since the last commit, replayed into R once their change is on the layer. */
+    private readonly pending: TGlDab[] = [];
 
     private constructor(canvas: HTMLCanvasElement, gl: WebGLRenderingContext, maxEquation: number,
         shape: HTMLCanvasElement, grain: HTMLCanvasElement | undefined, grainFilter: boolean) {
@@ -72,23 +107,30 @@ export class MaxTransferGl {
             }
             return shader;
         };
-        this.program = gl.createProgram()!;
-        gl.attachShader(this.program, compile(gl.VERTEX_SHADER, VERTEX));
-        gl.attachShader(this.program, compile(gl.FRAGMENT_SHADER, FRAGMENT));
-        gl.linkProgram(this.program);
-        if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
-            throw new Error(gl.getProgramInfoLog(this.program) || 'Program link failed');
-        }
-        gl.useProgram(this.program);
-        ['center', 'halfSide', 'resolution', 'shape', 'grain', 'hasGrain', 'shapeRowX', 'shapeRowY',
-            'size', 'grainOrigin', 'grainRowX', 'grainRowY', 'grainSize', 'color', 'alpha']
-            .forEach((name) => this.uniforms[name] = gl.getUniformLocation(this.program, name));
+        const link = (vertex: string, fragment: string, uniforms: Record<string, unknown>,
+            names: string[]) => {
+            const program = gl.createProgram()!;
+            gl.attachShader(program, compile(gl.VERTEX_SHADER, vertex));
+            gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fragment));
+            // Both programs read the same quad buffer through attribute 0.
+            gl.bindAttribLocation(program, 0, 'corner');
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                throw new Error(gl.getProgramInfoLog(program) || 'Program link failed');
+            }
+            names.forEach((name) => uniforms[name] = gl.getUniformLocation(program, name));
+            return program;
+        };
+        this.dabProgram = link(DAB_VERTEX, DAB_FRAGMENT, this.dabUniforms, ['center', 'halfSide',
+            'resolution', 'shape', 'grain', 'hasGrain', 'shapeRowX', 'shapeRowY', 'size',
+            'grainOrigin', 'grainRowX', 'grainRowY', 'grainSize', 'alpha']);
+        this.outputProgram = link(OUTPUT_VERTEX, OUTPUT_FRAGMENT, this.outputUniforms,
+            ['coverage', 'origin', 'outputHeight', 'resolution', 'color']);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-        const corner = gl.getAttribLocation(this.program, 'corner');
-        gl.enableVertexAttribArray(corner);
-        gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
         const texture = (unit: number, source: HTMLCanvasElement, linear: boolean, repeat: boolean) => {
             let image = source;
@@ -114,22 +156,34 @@ export class MaxTransferGl {
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
         };
+        gl.useProgram(this.dabProgram);
         texture(0, shape, true, false);
-        gl.uniform1i(this.uniforms.shape, 0);
+        gl.uniform1i(this.dabUniforms.shape, 0);
         this.hasGrain = !!grain;
         if (grain) {
             texture(1, grain, grainFilter, true);
-            gl.uniform1i(this.uniforms.grain, 1);
+            gl.uniform1i(this.dabUniforms.grain, 1);
             this.grainWidth = grain.width;
             this.grainHeight = grain.height;
         }
-        gl.uniform1i(this.uniforms.hasGrain, grain ? 1 : 0);
+        gl.uniform1i(this.dabUniforms.hasGrain, grain ? 1 : 0);
 
-        gl.enable(gl.BLEND);
+        // Unit 2 is only sampled by the output program, never while rendering into it.
+        gl.activeTexture(gl.TEXTURE2);
+        this.coverage = gl.createTexture()!;
+        gl.bindTexture(gl.TEXTURE_2D, this.coverage);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        this.framebuffer = gl.createFramebuffer()!;
+        gl.useProgram(this.outputProgram);
+        gl.uniform1i(this.outputUniforms.coverage, 2);
+
         gl.blendEquation(maxEquation);
         gl.blendFunc(gl.ONE, gl.ONE);
         const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array;
-        this.maxSize = Math.min(viewport[0], viewport[1], gl.getParameter(gl.MAX_RENDERBUFFER_SIZE));
+        this.maxSize = Math.min(viewport[0], viewport[1], gl.getParameter(gl.MAX_TEXTURE_SIZE));
     }
 
     /** Undefined when WebGL or MAX blending is unavailable; callers then use the CPU path. */
@@ -148,26 +202,39 @@ export class MaxTransferGl {
         }
     }
 
-    /** Clear the buffer for a new stroke. False if the layer is too large for this GPU. */
+    /** Clear the coverage for a new stroke. False if the layer is too large for this GPU. */
     begin(width: number, height: number, color: string): boolean {
         const gl = this.gl;
         if (gl.isContextLost() || width > this.maxSize || height > this.maxSize) return false;
-        if (this.canvas.width !== width || this.canvas.height !== height) {
-            this.canvas.width = width;
-            this.canvas.height = height;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
+        if (this.width !== width || this.height !== height) {
+            this.width = width;
+            this.height = height;
+            gl.activeTexture(gl.TEXTURE2);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D,
+                this.coverage, 0);
+            if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+                this.width = this.height = 0;
+                return false;
+            }
         }
-        gl.viewport(0, 0, width, height);
-        gl.uniform2f(this.uniforms.resolution, width, height);
-        const [r, g, b] = (color.match(/\d+(\.\d+)?/g) || ['0', '0', '0']).map(Number);
-        gl.uniform3f(this.uniforms.color, r / 255, g / 255, b / 255);
+        gl.colorMask(true, true, true, true);
         gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
+        const [r, g, b] = (color.match(/\d+(\.\d+)?/g) || ['0', '0', '0']).map(Number);
+        gl.useProgram(this.outputProgram);
+        gl.uniform3f(this.outputUniforms.color, r / 255, g / 255, b / 255);
+        gl.uniform2f(this.outputUniforms.resolution, width, height);
+        gl.useProgram(this.dabProgram);
+        gl.uniform2f(this.dabUniforms.resolution, width, height);
+        this.pending.length = 0;
         return true;
     }
 
-    dab(d: TGlDab): void {
+    private drawDab(d: TGlDab): void {
         const gl = this.gl;
-        const u = this.uniforms;
+        const u = this.dabUniforms;
         const cos = Math.cos(d.rotation);
         const sin = Math.sin(d.rotation);
         gl.uniform2f(u.center, d.x, d.y);
@@ -186,5 +253,47 @@ export class MaxTransferGl {
             gl.uniform2f(u.grainSize, this.grainWidth, this.grainHeight);
         }
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    /** Raise the target coverage (A) under this dab. */
+    dab(d: TGlDab): void {
+        const gl = this.gl;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
+        gl.viewport(0, 0, this.width, this.height);
+        gl.useProgram(this.dabProgram);
+        gl.enable(gl.BLEND);
+        gl.colorMask(false, false, false, true);
+        this.drawDab(d);
+        this.pending.push(d);
+    }
+
+    /**
+     * Render the change within the region since the last commit into the top-left of `canvas`,
+     * then mark it applied. The caller must draw it over the layer before the next commit.
+     */
+    commit(x: number, y: number, width: number, height: number): void {
+        const gl = this.gl;
+        if (this.canvas.width < width || this.canvas.height < height) {
+            // Grow in steps, so a growing stroke does not reallocate on every commit.
+            this.canvas.width = Math.max(this.canvas.width, 2 ** Math.ceil(Math.log2(width)));
+            this.canvas.height = Math.max(this.canvas.height, 2 ** Math.ceil(Math.log2(height)));
+        }
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, this.canvas.height - height, width, height);
+        gl.useProgram(this.outputProgram);
+        gl.disable(gl.BLEND);
+        gl.colorMask(true, true, true, true);
+        gl.uniform2f(this.outputUniforms.origin, x, y);
+        gl.uniform1f(this.outputUniforms.outputHeight, this.canvas.height);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+        // Applied coverage (R) catches up with the target (A) by replaying the same dabs.
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
+        gl.viewport(0, 0, this.width, this.height);
+        gl.useProgram(this.dabProgram);
+        gl.enable(gl.BLEND);
+        gl.colorMask(true, false, false, false);
+        this.pending.forEach((d) => this.drawDab(d));
+        this.pending.length = 0;
     }
 }

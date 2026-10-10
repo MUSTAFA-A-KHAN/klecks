@@ -20,7 +20,7 @@ export class ProcreateStamp {
     private lastX = 0;
     private lastY = 0;
     private travel = 0;
-    /** Per-stroke layer snapshots. The CPU path also keeps its coverage per tile. */
+    /** CPU path: per-stroke layer snapshots, and the coverage of each tile. */
     private readonly tiles = new Map<string, {
         tx: number; ty: number; original: HTMLCanvasElement;
         coverage?: HTMLCanvasElement; pixels?: ImageData;
@@ -168,52 +168,30 @@ export class ProcreateStamp {
         } : { x1: sx, y1: sy, x2: ex, y2: ey });
     }
 
-    /** GPU path: snapshot the tiles a dab covers before commit() redraws them. */
-    private gpuTiles(ctx: CanvasRenderingContext2D, left: number, top: number, side: number): void {
-        const x0 = Math.max(0, Math.floor(left));
-        const y0 = Math.max(0, Math.floor(top));
-        const right = Math.min(ctx.canvas.width, Math.ceil(left + side));
-        const bottom = Math.min(ctx.canvas.height, Math.ceil(top + side));
-        for (let ty = Math.floor(y0 / TILE_SIZE) * TILE_SIZE; ty < bottom; ty += TILE_SIZE) {
-            for (let tx = Math.floor(x0 / TILE_SIZE) * TILE_SIZE; tx < right; tx += TILE_SIZE) {
-                this.tile(ctx, tx, ty);
-                this.markDirty(`${tx},${ty}`, Math.max(x0, tx), Math.max(y0, ty),
-                    Math.min(right, tx + TILE_SIZE), Math.min(bottom, ty + TILE_SIZE));
-            }
-        }
+    /** GPU path: grow the region the next commit has to cover. */
+    private gpuMark(ctx: CanvasRenderingContext2D, left: number, top: number, side: number): void {
+        const x1 = Math.max(0, Math.floor(left));
+        const y1 = Math.max(0, Math.floor(top));
+        const x2 = Math.min(ctx.canvas.width, Math.ceil(left + side));
+        const y2 = Math.min(ctx.canvas.height, Math.ceil(top + side));
+        if (x2 > x1 && y2 > y1) this.markDirty('gpu', x1, y1, x2, y2);
     }
 
     /**
-     * GPU flush: one drawImage of the coverage buffer over the dirty area, since browsers may copy
-     * the whole WebGL canvas per drawImage. Every snapshotted tile in that area is restored first;
-     * elsewhere the buffer is still empty, so drawing it there changes nothing.
+     * GPU flush: draw only the change since the last flush over the layer. No snapshot or restore
+     * is needed, and the image drawn is just the size of the changed region.
      */
     private flushGpu(ctx: CanvasRenderingContext2D, lockAlpha: boolean): void {
-        let x1 = Infinity;
-        let y1 = Infinity;
-        let x2 = -Infinity;
-        let y2 = -Infinity;
-        this.dirty.forEach((region) => {
-            x1 = Math.min(x1, region.x1);
-            y1 = Math.min(y1, region.y1);
-            x2 = Math.max(x2, region.x2);
-            y2 = Math.max(y2, region.y2);
-        });
+        const region = this.dirty.get('gpu');
         this.dirty.clear();
+        if (!region) return;
+        const { x1, y1, x2, y2 } = region;
+        const gpu = this.gpu!;
+        gpu.commit(x1, y1, x2 - x1, y2 - y1);
         ctx.save();
         ctx.globalAlpha = 1;
-        ctx.globalCompositeOperation = 'source-over';
-        this.tiles.forEach(({ tx, ty, original }) => {
-            const sx = Math.max(x1, tx);
-            const sy = Math.max(y1, ty);
-            const w = Math.min(x2, tx + original.width) - sx;
-            const h = Math.min(y2, ty + original.height) - sy;
-            if (w <= 0 || h <= 0) return;
-            ctx.clearRect(sx, sy, w, h);
-            ctx.drawImage(original, sx - tx, sy - ty, w, h, sx, sy, w, h);
-        });
         ctx.globalCompositeOperation = lockAlpha ? 'source-atop' : 'source-over';
-        ctx.drawImage(this.gpu!.canvas, x1, y1, x2 - x1, y2 - y1, x1, y1, x2 - x1, y2 - y1);
+        ctx.drawImage(gpu.canvas, 0, 0, x2 - x1, y2 - y1, x1, y1, x2 - x1, y2 - y1);
         ctx.restore();
     }
 
@@ -329,7 +307,7 @@ export class ProcreateStamp {
                         scale: grainSize / this.grainMask.width,
                     },
                 });
-                this.gpuTiles(ctx, sx - side / 2, sy - side / 2, side);
+                this.gpuMark(ctx, sx - side / 2, sy - side / 2, side);
                 bounds.x1 = Math.min(bounds.x1, Math.floor(cx - side / 2));
                 bounds.y1 = Math.min(bounds.y1, Math.floor(cy - side / 2));
                 bounds.x2 = Math.max(bounds.x2, Math.ceil(cx + side / 2));
