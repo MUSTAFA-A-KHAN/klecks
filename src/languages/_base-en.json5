@@ -13,6 +13,8 @@ Renaming a key across multiple language files:
 -> translations are updated. You need to manually remove "oldKey".
 */
 {
+  "brush-library-title": "Brush library",
+  "brush-library-empty": "Your next favorite brush starts here. Import a .brush or .brushset file.",
   "brush-import-procreate": "Import Procreate brushes",
   "brush-import-library": "Imported brush tips",
   "brush-import-built-in": "Built-in brush tips",

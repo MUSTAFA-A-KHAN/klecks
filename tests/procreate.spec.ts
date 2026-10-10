@@ -69,8 +69,13 @@ test('reports partially supported sets and recovers after a bad file', async ({ 
     await expect(page.getByRole('status')).toContainText('Bundled shape');
     const library = page.getByRole('combobox', { name: 'Imported brush tips' });
     await expect(library.locator('option')).toHaveCount(3);
-    await library.selectOption({ label: 'Inverted' });
+    await page.getByRole('button', { name: 'Inverted', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Inverted', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(library.locator('option:checked')).toHaveText('Inverted');
+    await page.reload();
+    await expect(button).toBeEnabled();
+    await expect(page.getByText('mixed', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Inverted', exact: true })).toBeVisible();
 });
 
 test('keeps unsaved imports usable and removable when brush storage fails', async ({ page }) => {
