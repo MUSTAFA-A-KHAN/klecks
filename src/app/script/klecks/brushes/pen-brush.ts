@@ -38,6 +38,7 @@ export class PenBrush {
     private customAlpha: HTMLCanvasElement | undefined;
     private customSpacing: number = 0.2;
     private procreateStamp: ProcreateStamp | undefined;
+    private procreateCommitQueued: boolean = false;
     private settingLockLayerAlpha: boolean = false;
 
     private hasDrawnDot: boolean = false;
@@ -282,8 +283,39 @@ export class PenBrush {
             this.drawDot(item[0], item[1], item[2], item[3], item[4], item[5], before);
             before = item;
         }
-        this.procreateStamp?.commit(this.context, this.settingLockLayerAlpha);
+        if (x === null) {
+            this.commitProcreate();
+        } else {
+            this.queueProcreateCommit();
+        }
         this.context.restore();
+    }
+
+    /** Write pending Procreate dabs to the layer. Call within the selection clip. */
+    private commitProcreate(): void {
+        this.procreateCommitQueued = false;
+        this.procreateStamp?.commit(this.context, this.settingLockLayerAlpha);
+    }
+
+    /**
+     * One pointer event can carry several coalesced samples (an Apple Pencil reports up to 240 Hz),
+     * each drawn by its own goLine. Committing once after all of them, before the frame renders,
+     * avoids redrawing the layer for samples nobody sees.
+     */
+    private queueProcreateCommit(): void {
+        if (!this.procreateStamp || this.procreateCommitQueued) {
+            return;
+        }
+        this.procreateCommitQueued = true;
+        queueMicrotask(() => {
+            if (!this.procreateCommitQueued) {
+                return;
+            }
+            this.context.save();
+            this.selectionPath && this.context.clip(this.selectionPath);
+            this.commitProcreate();
+            this.context.restore();
+        });
     }
 
     // ----------------------------------- public -----------------------------------
@@ -311,7 +343,7 @@ export class PenBrush {
         this.context.save();
         this.selectionPath && this.context.clip(this.selectionPath);
         this.drawDot(x, y, localSize, localOpacity, localScatter);
-        this.procreateStamp?.commit(this.context, this.settingLockLayerAlpha);
+        this.commitProcreate();
         this.context.restore();
 
         this.lineToolLastDot = localSize * this.getSpacing();
@@ -438,7 +470,7 @@ export class PenBrush {
                 angle,
             );
         }
-        this.procreateStamp?.commit(this.context, this.settingLockLayerAlpha);
+        this.commitProcreate();
         this.procreateStamp?.end();
         this.context.restore();
 

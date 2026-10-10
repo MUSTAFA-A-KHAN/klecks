@@ -22,8 +22,11 @@ export class ProcreateStamp {
     private travel = 0;
     /** Per-stroke layer snapshots. The CPU path also keeps its coverage per tile. */
     private readonly tiles = new Map<string, {
-        original: HTMLCanvasElement; coverage?: HTMLCanvasElement; pixels?: ImageData;
+        tx: number; ty: number; original: HTMLCanvasElement;
+        coverage?: HTMLCanvasElement; pixels?: ImageData;
     }>();
+    /** Snapshot canvases kept between strokes: creating canvases is slow, especially on iOS. */
+    private readonly pool: HTMLCanvasElement[] = [];
     /** Max transfer on the GPU when available: nothing has to be read back per dab. */
     private readonly gpu: MaxTransferGl | undefined;
     /** Whether this stroke uses the GPU; decided on its first dab, once the layer size is known. */
@@ -81,7 +84,7 @@ export class ProcreateStamp {
         this.lastX = x;
         this.lastY = y;
         this.travel = 0;
-        this.tiles.clear();
+        this.releaseTiles();
         this.gpuStroke = undefined;
         this.startAngle = this.profile.randomStart ? this.random() * Math.PI * 2 : 0;
     }
@@ -134,15 +137,27 @@ export class ProcreateStamp {
         const key = `${tx},${ty}`;
         let tile = this.tiles.get(key);
         if (!tile) {
-            const original = document.createElement('canvas');
-            original.width = Math.min(TILE_SIZE, ctx.canvas.width - tx);
-            original.height = Math.min(TILE_SIZE, ctx.canvas.height - ty);
-            original.getContext('2d')!.drawImage(ctx.canvas, tx, ty, original.width,
-                original.height, 0, 0, original.width, original.height);
-            tile = { original };
+            const original = this.pool.pop() || document.createElement('canvas');
+            const width = Math.min(TILE_SIZE, ctx.canvas.width - tx);
+            const height = Math.min(TILE_SIZE, ctx.canvas.height - ty);
+            if (original.width !== width || original.height !== height) {
+                original.width = width;
+                original.height = height;
+            }
+            const originalCtx = original.getContext('2d')!;
+            originalCtx.globalCompositeOperation = 'copy';
+            originalCtx.drawImage(ctx.canvas, tx, ty, width, height, 0, 0, width, height);
+            tile = { tx, ty, original };
             this.tiles.set(key, tile);
         }
         return tile;
+    }
+
+    private releaseTiles(): void {
+        this.tiles.forEach((tile) => {
+            if (this.pool.length < 256) this.pool.push(tile.original);
+        });
+        this.tiles.clear();
     }
 
     private markDirty(key: string, sx: number, sy: number, ex: number, ey: number): void {
@@ -188,15 +203,14 @@ export class ProcreateStamp {
         ctx.save();
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = 'source-over';
-        this.tiles.forEach((tile, key) => {
-            const [tx, ty] = key.split(',').map(Number);
+        this.tiles.forEach(({ tx, ty, original }) => {
             const sx = Math.max(x1, tx);
             const sy = Math.max(y1, ty);
-            const w = Math.min(x2, tx + tile.original.width) - sx;
-            const h = Math.min(y2, ty + tile.original.height) - sy;
+            const w = Math.min(x2, tx + original.width) - sx;
+            const h = Math.min(y2, ty + original.height) - sy;
             if (w <= 0 || h <= 0) return;
             ctx.clearRect(sx, sy, w, h);
-            ctx.drawImage(tile.original, sx - tx, sy - ty, w, h, sx, sy, w, h);
+            ctx.drawImage(original, sx - tx, sy - ty, w, h, sx, sy, w, h);
         });
         ctx.globalCompositeOperation = lockAlpha ? 'source-atop' : 'source-over';
         ctx.drawImage(this.gpu!.canvas, x1, y1, x2 - x1, y2 - y1, x1, y1, x2 - x1, y2 - y1);
@@ -269,7 +283,7 @@ export class ProcreateStamp {
     }
 
     end(): void {
-        this.tiles.clear();
+        this.releaseTiles();
         this.gpuStroke = undefined;
         this.dirty.clear();
         this.pending.length = 0;
